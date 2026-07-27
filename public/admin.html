@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Сотрудники — учёт времени</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #161d2e; --accent: #4f8cff;
+    --text: #eef1f8; --muted: #8a94ab; --border: #262f45;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    padding: 24px 16px 60px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
+  .links-row { display: flex; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; align-items: center; }
+  .links-row a, .links-row button {
+    color: var(--accent); font-size: 13px; text-decoration: none;
+    border: 1px solid var(--border); padding: 8px 14px; border-radius: 10px;
+    background: transparent; cursor: pointer; font-family: inherit;
+  }
+  .export-row {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 24px;
+  }
+  .export-label { font-size: 13px; color: var(--muted); }
+  .export-dash { color: var(--muted); }
+  .export-row input[type="date"] {
+    background: #0f1420; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit;
+  }
+  .export-row button {
+    padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
+    color: white; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 16px; overflow: hidden; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; }
+  tr:last-child td { border-bottom: none; }
+  .btn-small {
+    padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  .btn-small:hover { border-color: var(--accent); }
+  .badge { padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge.active { background: rgba(52,199,123,0.15); color: #34c77b; }
+  .badge.inactive { background: rgba(255,84,112,0.15); color: #ff5470; }
+  .mono { color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="links-row">
+    <a href="/logs.html">📋 Журнал прихода/ухода</a>
+    <button onclick="logout()">🚪 Выйти</button>
+  </div>
+
+  <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank">
+    <span class="export-label">📊 Экспорт в Excel за период:</span>
+    <input type="date" name="from" />
+    <span class="export-dash">—</span>
+    <input type="date" name="to" />
+    <button type="submit">Скачать</button>
+    <span class="export-label">(оставьте пустым — выгрузится весь период)</span>
+  </form>
+  <h1>Сотрудники</h1>
+  <div class="sub">
+    Сотрудники регистрируются самостоятельно на странице входа — здесь можно посмотреть список
+    и включить/отключить пропуск.
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>ФИО</th><th>Логин</th><th>График</th><th>Статус</th><th>Действия</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<script>
+async function checkAuth() {
+  const resp = await fetch('/api/auth/me');
+  if (!resp.ok) { location.href = '/login.html'; return false; }
+  const user = await resp.json();
+  if (user.role !== 'admin') { location.href = '/login.html'; return false; }
+  return true;
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  location.href = '/login.html';
+}
+
+async function loadEmployees() {
+  const resp = await fetch('/api/employees');
+  if (resp.status === 401 || resp.status === 403) { location.href = '/login.html'; return; }
+  const employees = await resp.json();
+  const rows = document.getElementById('rows');
+  rows.innerHTML = employees.map(e => `
+    <tr>
+      <td>${escapeHtml(e.full_name)}</td>
+      <td class="mono">${escapeHtml(e.login)}</td>
+      <td class="mono">${escapeHtml(e.work_start || '—')}–${escapeHtml(e.work_end || '—')}</td>
+      <td><span class="badge ${e.active ? 'active' : 'inactive'}">${e.active ? 'Активен' : 'Отключён'}</span></td>
+      <td>
+        <button class="btn-small" onclick="toggleActive(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'Отключить' : 'Включить'}</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" style="color:#8a94ab;">Пока нет зарегистрированных сотрудников</td></tr>';
+}
+
+async function toggleActive(id, active) {
+  await fetch(`/api/employees/${id}/active`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active: !!active }),
+  });
+  loadEmployees();
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+(async () => {
+  if (await checkAuth()) loadEmployees();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Журнал — приход/уход</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #161d2e; --accent: #4f8cff;
+    --green: #34c77b; --red: #ff5470; --text: #eef1f8; --muted: #8a94ab; --border: #262f45;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    padding: 24px 16px 60px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+  a.back { color: var(--muted); font-size: 13px; text-decoration: none; }
+  .day-group { margin-bottom: 22px; }
+  .day-title {
+    color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.4px; margin: 18px 0 8px;
+  }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 16px; overflow: hidden; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+  tr:last-child td { border-bottom: none; }
+  .time-in { color: var(--green); font-weight: 600; }
+  .time-out { color: var(--red); font-weight: 600; }
+  .time-out.pending { color: var(--muted); font-weight: 400; font-style: italic; }
+  .duration { color: var(--muted); }
+  .refresh { color: var(--muted); font-size: 12px; margin-top: 16px; text-align: center; }
+  .export-row {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 16px; margin: 12px 0 20px;
+  }
+  .export-label { font-size: 13px; color: var(--muted); }
+  .export-dash { color: var(--muted); }
+  .export-row input[type="date"] {
+    background: #0f1420; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit;
+  }
+  .export-row button {
+    padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
+    color: white; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/admin.html">← К сотрудникам</a>
+  <h1>Журнал прихода / ухода</h1>
+  <button onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.href='/login.html')" style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;">Выйти</button>
+
+  <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank">
+    <span class="export-label">📊 Экспорт в Excel за период:</span>
+    <input type="date" name="from" />
+    <span class="export-dash">—</span>
+    <input type="date" name="to" />
+    <button type="submit">Скачать</button>
+    <span class="export-label">(оставьте пустым — весь период)</span>
+  </form>
+  <div class="sub">Приход и уход определяются автоматически по очереди сканирований. Здесь они сведены по сменам.</div>
+  <div id="content">Загрузка…</div>
+  <div class="refresh">Обновляется автоматически каждые 15 секунд</div>
+</div>
+
+<script>
+function pairShifts(logs, employeeId) {
+  // logs приходят от новых к старым — разворачиваем в хронологический порядок
+  const own = logs.filter(l => l.employee_id === employeeId).slice().reverse();
+  const shifts = [];
+  let openIn = null;
+  for (const log of own) {
+    if (log.type === 'in') {
+      if (openIn) shifts.push({ in: openIn, out: null }); // пришёл повторно без ухода — редкий край
+      openIn = log;
+    } else if (log.type === 'out' && openIn) {
+      shifts.push({ in: openIn, out: log });
+      openIn = null;
+    }
+  }
+  if (openIn) shifts.push({ in: openIn, out: null });
+  return shifts.reverse(); // новые смены сверху
+}
+
+function formatTime(ts) {
+  return new Date(ts.replace(' ', 'T') + 'Z').toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+function formatDate(ts) {
+  return new Date(ts.replace(' ', 'T') + 'Z').toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+function formatDuration(inTs, outTs) {
+  const ms = new Date(outTs.replace(' ', 'T') + 'Z') - new Date(inTs.replace(' ', 'T') + 'Z');
+  const totalMin = Math.max(0, Math.round(ms / 60000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h} ч ${String(m).padStart(2, '0')} мин`;
+}
+
+async function checkAuth() {
+  const resp = await fetch('/api/auth/me');
+  if (!resp.ok) { location.href = '/login.html'; return false; }
+  const user = await resp.json();
+  if (user.role !== 'admin') { location.href = '/login.html'; return false; }
+  return true;
+}
+
+async function load() {
+  const [logsResp, employeesResp] = await Promise.all([
+    fetch('/api/logs'),
+    fetch('/api/employees'),
+  ]);
+  if (logsResp.status === 401 || logsResp.status === 403) { location.href = '/login.html'; return; }
+  const logs = await logsResp.json();
+  const employees = await employeesResp.json();
+
+  // Собираем смены по каждому сотруднику, затем сводим всё в один список с датой
+  const allShifts = [];
+  for (const emp of employees) {
+    const shifts = pairShifts(logs, emp.id);
+    for (const s of shifts) {
+      allShifts.push({ employee: emp, ...s });
+    }
+  }
+
+  // Сортируем по времени прихода, новые сверху
+  allShifts.sort((a, b) => new Date(b.in.timestamp) - new Date(a.in.timestamp));
+
+  // Группируем по дате
+  const groups = {};
+  for (const s of allShifts) {
+    const dateKey = formatDate(s.in.timestamp);
+    if (!groups[dateKey]) groups[dateKey] = [];
+    groups[dateKey].push(s);
+  }
+
+  const content = document.getElementById('content');
+  if (!allShifts.length) {
+    content.innerHTML = '<div style="color:#8a94ab;">Пока нет отметок прихода/ухода</div>';
+    return;
+  }
+
+  content.innerHTML = Object.entries(groups).map(([date, shifts]) => `
+    <div class="day-group">
+      <div class="day-title">${date}</div>
+      <table>
+        <thead><tr><th>Сотрудник</th><th>Приход</th><th>Уход</th><th>Отработано</th></tr></thead>
+        <tbody>
+          ${shifts.map(s => `
+            <tr>
+              <td>${escapeHtml(s.employee.full_name)}</td>
+              <td class="time-in">${formatTime(s.in.timestamp)}</td>
+              <td class="${s.out ? 'time-out' : 'time-out pending'}">${s.out ? formatTime(s.out.timestamp) : 'ещё на месте'}</td>
+              <td class="duration">${s.out ? formatDuration(s.in.timestamp, s.out.timestamp) : '—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+(async () => {
+  if (await checkAuth()) {
+    load();
+    setInterval(load, 15000);
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Пост охраны — QR для отметки</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #161d2e; --accent: #4f8cff;
+    --text: #eef1f8; --muted: #8a94ab; --border: #262f45;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 28px 16px 40px;
+  }
+  h1 { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0.4px; margin: 4px 0 22px; text-align: center; }
+  .qr-box {
+    background: white; border-radius: 24px; padding: 20px; width: 320px; height: 320px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .qr-box img { width: 100%; height: 100%; }
+  .timer-wrap { margin-top: 22px; width: 320px; }
+  .timer-bar { height: 8px; border-radius: 8px; background: var(--panel); overflow: hidden; border: 1px solid var(--border); }
+  .timer-fill { height: 100%; background: var(--accent); transition: width 1s linear; }
+  .timer-label { text-align: center; margin-top: 8px; color: var(--muted); font-size: 14px; }
+  .note {
+    margin-top: 26px; max-width: 340px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5;
+  }
+  .topbar { width: 320px; display: flex; justify-content: flex-end; margin-bottom: 6px; }
+  .topbar button {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="topbar"><button onclick="logout()">Выйти</button></div>
+  <h1>ПОКАЖИТЕ ЭТОТ QR СОТРУДНИКУ<br/>ДЛЯ ОТМЕТКИ ПРИХОДА / УХОДА</h1>
+  <div class="qr-box"><img id="qrImg" src="/api/guard-qrcode.png" alt="QR" /></div>
+
+  <div class="timer-wrap">
+    <div class="timer-bar"><div class="timer-fill" id="fill"></div></div>
+    <div class="timer-label" id="label">обновление через 60 сек</div>
+  </div>
+
+  <div class="note">
+    Код действителен ровно 1 минуту и одноразовый для каждого сотрудника —
+    сфотографированный или пересланный код повторно использовать не получится.
+  </div>
+
+<script>
+  const WINDOW_SECONDS = 60;
+  const img = document.getElementById('qrImg');
+  const fill = document.getElementById('fill');
+  const label = document.getElementById('label');
+
+  async function checkAuth() {
+    const resp = await fetch('/api/auth/me');
+    if (!resp.ok) { location.href = '/login.html'; return; }
+    const user = await resp.json();
+    if (user.role !== 'guard') { location.href = '/login.html'; }
+  }
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.href = '/login.html';
+  }
+  checkAuth();
+
+  function refreshQr() {
+    img.src = '/api/guard-qrcode.png?t=' + Date.now();
+  }
+
+  function tick() {
+    const secondsIntoWindow = Math.floor(Date.now() / 1000) % WINDOW_SECONDS;
+    const secondsLeft = WINDOW_SECONDS - secondsIntoWindow;
+    const percent = (secondsLeft / WINDOW_SECONDS) * 100;
+    fill.style.width = percent + '%';
+    label.textContent = `обновление через ${secondsLeft} сек`;
+
+    // Как только начался новый "тик" минуты — подтягиваем новую картинку
+    if (secondsLeft === WINDOW_SECONDS) {
+      refreshQr();
+    }
+  }
+
+  setInterval(tick, 1000);
+  tick();
+</script>
+</body>
+</html>

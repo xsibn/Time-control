@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Учёт рабочего времени</title>
+<style>
+  :root { --bg:#0f1420; --panel:#161d2e; --accent:#4f8cff; --text:#eef1f8; --muted:#8a94ab; --border:#262f45; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;
+  }
+  h1 { font-size: 20px; margin-bottom: 6px; text-align: center; color: var(--muted); font-weight: 600; }
+  .who { font-size: 13px; color: var(--muted); margin-bottom: 22px; text-align: center; }
+  .cards { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 340px; }
+  a.card, button.card {
+    display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px; color: var(--text); text-decoration: none; text-align: left; cursor: pointer; font-family: inherit;
+  }
+  a.card .t, button.card .t { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  a.card .d, button.card .d { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1>УЧЁТ РАБОЧЕГО ВРЕМЕНИ</h1>
+  <div class="who" id="who"></div>
+  <div class="cards" id="cards">Загрузка…</div>
+
+<script>
+async function init() {
+  const resp = await fetch('/api/auth/me');
+  const cards = document.getElementById('cards');
+  const who = document.getElementById('who');
+
+  if (!resp.ok) {
+    who.textContent = 'Вы не авторизованы';
+    cards.innerHTML = `
+      <a class="card" href="/login.html">
+        <div class="t">🔑 Войти / зарегистрироваться</div>
+        <div class="d">Вход для охраны или регистрация сотрудника</div>
+      </a>`;
+    return;
+  }
+
+  const user = await resp.json();
+  const roleLabel = { guard: 'охрана', admin: 'администратор', employee: 'сотрудник' }[user.role] || user.role;
+  who.textContent = `${user.full_name} · ${roleLabel}`;
+
+  if (user.role === 'guard') {
+    cards.innerHTML = `
+      <a class="card" href="/guard.html">
+        <div class="t">🛡️ Экран охранника</div>
+        <div class="d">Показывает QR-код, обновляется каждую минуту</div>
+      </a>
+      <button class="card" onclick="logout()">
+        <div class="t">🚪 Выйти</div>
+      </button>`;
+  } else if (user.role === 'admin') {
+    cards.innerHTML = `
+      <a class="card" href="/admin.html">
+        <div class="t">👤 Сотрудники</div>
+        <div class="d">Список зарегистрированных сотрудников</div>
+      </a>
+      <a class="card" href="/logs.html">
+        <div class="t">📋 Журнал</div>
+        <div class="d">Приход, уход и отработанное время по сменам</div>
+      </a>
+      <a class="card" href="/admin.html">
+        <div class="t">📊 Экспорт в Excel</div>
+        <div class="d">Выбрать период и скачать таблицу</div>
+      </a>
+      <button class="card" onclick="logout()">
+        <div class="t">🚪 Выйти</div>
+      </button>`;
+  } else {
+    cards.innerHTML = `
+      <a class="card" href="/scan.html">
+        <div class="t">📷 Отметить приход/уход</div>
+        <div class="d">Сканировать QR-код на посту охраны</div>
+      </a>
+      <button class="card" onclick="logout()">
+        <div class="t">🚪 Выйти</div>
+      </button>`;
+  }
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  location.href = '/login.html';
+}
+
+init();
+</script>
+</body>
+</html>

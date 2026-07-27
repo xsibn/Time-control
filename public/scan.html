@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Моя отметка — приход/уход</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #161d2e; --accent: #4f8cff;
+    --green: #34c77b; --red: #ff5470; --text: #eef1f8; --muted: #8a94ab; --border: #262f45;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 24px 16px 40px;
+  }
+  .topbar { width: 100%; max-width: 380px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .topbar .name { font-size: 13px; color: var(--muted); }
+  .topbar button {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 6px 0 4px; text-align: center; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; text-align: center; }
+  #reader {
+    width: 100%; max-width: 380px; border-radius: 20px; overflow: hidden;
+    border: 1px solid var(--border); background: #000;
+  }
+  #result {
+    margin-top: 20px; width: 100%; max-width: 380px; min-height: 100px;
+    background: var(--panel); border-radius: 20px; padding: 18px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; border: 1px solid var(--border); transition: border-color 0.2s;
+  }
+  #result.ok { border-color: var(--green); }
+  #result.err { border-color: var(--red); }
+  #result .name { font-size: 19px; font-weight: 700; margin-bottom: 4px; }
+  #result .action { font-size: 15px; margin-bottom: 2px; }
+  #result .action.in { color: var(--green); }
+  #result .action.out { color: var(--red); }
+  #result .time { color: var(--muted); font-size: 13px; }
+  #result .hint { color: var(--muted); font-size: 14px; }
+  .error-box {
+    max-width: 380px; text-align: center; color: var(--red); padding: 30px 16px; font-size: 15px;
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+<script>
+  const app = document.getElementById('app');
+
+  async function init() {
+    const resp = await fetch('/api/auth/me');
+    if (!resp.ok) { location.href = '/login.html'; return; }
+    const user = await resp.json();
+    if (user.role !== 'employee') { location.href = '/login.html'; return; }
+
+    app.innerHTML = `
+      <div class="topbar">
+        <div class="name">${escapeHtml(user.full_name)}</div>
+        <button onclick="logout()">Выйти</button>
+      </div>
+      <h1>ОТСКАНИРУЙТЕ QR НА ПОСТУ ОХРАНЫ</h1>
+      <div class="sub">Код меняется каждую минуту — наведите камеру на экран охранника</div>
+      <div id="reader"></div>
+      <div id="result"><div class="hint">Наведите камеру на QR-код</div></div>
+    `;
+    initScanner();
+  }
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.href = '/login.html';
+  }
+
+  function initScanner() {
+    const resultEl = document.getElementById('result');
+    let busy = false;
+
+    async function submitPayload(payload) {
+      if (busy) return;
+      busy = true;
+      try {
+        const resp = await fetch('/api/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          if (resp.status === 401) { location.href = '/login.html'; return; }
+          showError(data.error || 'Ошибка');
+        } else {
+          showSuccess(data);
+        }
+      } catch (e) {
+        showError('Нет связи с сервером');
+      } finally {
+        setTimeout(() => { busy = false; }, 2000);
+      }
+    }
+
+    function showSuccess(data) {
+      const time = new Date(data.timestamp.replace(' ', 'T') + 'Z')
+        .toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      resultEl.className = 'ok';
+      resultEl.innerHTML = `
+        <div class="name">${escapeHtml(data.full_name)}</div>
+        <div class="action ${data.type}">${data.type === 'in' ? 'ПРИХОД ЗАСЧИТАН ✓' : 'УХОД ЗАСЧИТАН ✓'}</div>
+        <div class="time">${time}</div>
+      `;
+      resetAfterDelay();
+    }
+
+    function showError(msg) {
+      resultEl.className = 'err';
+      resultEl.innerHTML = `<div class="hint">${escapeHtml(msg)}</div>`;
+      resetAfterDelay();
+    }
+
+    function resetAfterDelay() {
+      setTimeout(() => {
+        resultEl.className = '';
+        resultEl.innerHTML = '<div class="hint">Наведите камеру на QR-код</div>';
+      }, 3500);
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    const qr = new Html5Qrcode('reader');
+    Html5Qrcode.getCameras().then((cameras) => {
+      if (!cameras || !cameras.length) {
+        document.getElementById('reader').innerHTML =
+          '<div style="color:#8a94ab;padding:40px;text-align:center;">Камера не найдена</div>';
+        return;
+      }
+      const camId = cameras.find(c => /back|rear|environment/i.test(c.label))?.id || cameras[cameras.length - 1].id;
+      qr.start(
+        camId,
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        (decodedText) => submitPayload(decodedText),
+        () => {}
+      );
+    }).catch(() => {
+      document.getElementById('reader').innerHTML =
+        '<div style="color:#8a94ab;padding:40px;text-align:center;">Нет доступа к камере</div>';
+    });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  init();
+</script>
+</body>
+</html>

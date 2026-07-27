@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Вход — учёт рабочего времени</title>
+<style>
+  :root { --bg:#0f1420; --panel:#161d2e; --accent:#4f8cff; --text:#eef1f8; --muted:#8a94ab; --border:#262f45; --red:#ff5470; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .box { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 26px; }
+  h1 { font-size: 18px; margin: 0 0 18px; text-align: center; color: var(--muted); font-weight: 600; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; background: #0f1420; padding: 4px; border-radius: 12px; border: 1px solid var(--border); }
+  .tabs button {
+    flex: 1; padding: 10px; border: none; border-radius: 9px; background: transparent; color: var(--muted);
+    font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  .tabs button.active { background: var(--accent); color: white; }
+  form { display: none; flex-direction: column; gap: 12px; }
+  form.active { display: flex; }
+  input {
+    padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: #0f1420; color: var(--text); font-size: 15px; width: 100%;
+  }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  label { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: block; }
+  button.submit {
+    padding: 13px; border-radius: 10px; border: none; background: var(--accent);
+    color: white; font-weight: 700; cursor: pointer; font-size: 15px; margin-top: 4px;
+  }
+  .error { color: var(--red); font-size: 13px; text-align: center; min-height: 18px; }
+  .hint { color: var(--muted); font-size: 12px; text-align: center; margin-top: 12px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>УЧЁТ РАБОЧЕГО ВРЕМЕНИ</h1>
+    <div class="tabs">
+      <button id="tabLogin" class="active" onclick="switchTab('login')">Вход</button>
+      <button id="tabRegister" onclick="switchTab('register')">Регистрация</button>
+    </div>
+
+    <form id="loginForm" class="active">
+      <div>
+        <label>Логин</label>
+        <input type="text" id="loginLogin" autocomplete="username" required />
+      </div>
+      <div>
+        <label>Пароль</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" required />
+      </div>
+      <button class="submit" type="submit">Войти</button>
+      <div class="error" id="loginError"></div>
+    </form>
+
+    <form id="registerForm">
+      <div>
+        <label>ФИО</label>
+        <input type="text" id="regFullName" required />
+      </div>
+      <div class="row">
+        <div>
+          <label>Начало работы (ЧЧ:ММ, 24ч)</label>
+          <input type="text" id="regStart" inputmode="numeric" placeholder="09:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" required />
+        </div>
+        <div>
+          <label>Конец работы (ЧЧ:ММ, 24ч)</label>
+          <input type="text" id="regEnd" inputmode="numeric" placeholder="18:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" required />
+        </div>
+      </div>
+      <div>
+        <label>Логин</label>
+        <input type="text" id="regLogin" autocomplete="username" required />
+      </div>
+      <div>
+        <label>Пароль</label>
+        <input type="password" id="regPassword" autocomplete="new-password" required minlength="6" />
+      </div>
+      <button class="submit" type="submit">Зарегистрироваться</button>
+      <div class="error" id="registerError"></div>
+    </form>
+
+    <div class="hint">Аккаунты охраны и администратора выдаются отдельно.<br/>Здесь регистрируются только сотрудники.</div>
+  </div>
+
+<script>
+function attachTimeMask(input) {
+  input.addEventListener('input', () => {
+    let digits = input.value.replace(/\D/g, '').slice(0, 4);
+    if (digits.length >= 3) {
+      input.value = digits.slice(0, 2) + ':' + digits.slice(2);
+    } else {
+      input.value = digits;
+    }
+  });
+}
+attachTimeMask(document.getElementById('regStart'));
+attachTimeMask(document.getElementById('regEnd'));
+
+function switchTab(which) {
+  document.getElementById('tabLogin').classList.toggle('active', which === 'login');
+  document.getElementById('tabRegister').classList.toggle('active', which === 'register');
+  document.getElementById('loginForm').classList.toggle('active', which === 'login');
+  document.getElementById('registerForm').classList.toggle('active', which === 'register');
+}
+
+function redirectByRole(role) {
+  if (role === 'guard') { location.href = '/guard.html'; return; }
+  if (role === 'admin') { location.href = '/admin.html'; return; }
+  location.href = '/scan.html';
+}
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  const resp = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      login: document.getElementById('loginLogin').value.trim(),
+      password: document.getElementById('loginPassword').value,
+    }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) { errEl.textContent = data.error || 'Ошибка входа'; return; }
+  redirectByRole(data.role);
+});
+
+document.getElementById('registerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('registerError');
+  errEl.textContent = '';
+  const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const work_start = document.getElementById('regStart').value.trim();
+  const work_end = document.getElementById('regEnd').value.trim();
+  if (!timeRe.test(work_start) || !timeRe.test(work_end)) {
+    errEl.textContent = 'Время укажите в 24-часовом формате ЧЧ:ММ (например, 09:00)';
+    return;
+  }
+  const resp = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      full_name: document.getElementById('regFullName').value.trim(),
+      work_start,
+      work_end,
+      login: document.getElementById('regLogin').value.trim(),
+      password: document.getElementById('regPassword').value,
+    }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) { errEl.textContent = data.error || 'Ошибка регистрации'; return; }
+  redirectByRole(data.role);
+});
+
+// Если уже авторизован — сразу отправляем на нужную страницу
+fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(user => {
+  if (user) redirectByRole(user.role);
+});
+</script>
+</body>
+</html>

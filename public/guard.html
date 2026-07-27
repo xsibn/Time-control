@@ -28,15 +28,19 @@
   .note {
     margin-top: 26px; max-width: 340px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.5;
   }
-  .topbar { width: 320px; display: flex; justify-content: flex-end; margin-bottom: 6px; }
-  .topbar button {
+  .topbar { width: 320px; display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .topbar a, .topbar button {
     background: transparent; border: 1px solid var(--border); color: var(--muted);
     padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;
+    text-decoration: none; font-family: inherit;
   }
 </style>
 </head>
 <body>
-  <div class="topbar"><button onclick="logout()">Выйти</button></div>
+  <div class="topbar">
+    <a href="/index.html">← Назад</a>
+    <button onclick="logout()">Выйти</button>
+  </div>
   <h1>ПОКАЖИТЕ ЭТОТ QR СОТРУДНИКУ<br/>ДЛЯ ОТМЕТКИ ПРИХОДА / УХОДА</h1>
   <div class="qr-box"><img id="qrImg" src="/api/guard-qrcode.png" alt="QR" /></div>
 

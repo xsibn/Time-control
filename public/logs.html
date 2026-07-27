@@ -18,7 +18,7 @@
   .wrap { max-width: 900px; margin: 0 auto; }
   h1 { font-size: 22px; margin-bottom: 4px; }
   .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
-  a.back { color: var(--muted); font-size: 13px; text-decoration: none; }
+  a.back { color: var(--muted); font-size: 13px; text-decoration: none; margin-right: 14px; }
   .day-group { margin-bottom: 22px; }
   .day-title {
     color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase;
@@ -52,6 +52,7 @@
 </head>
 <body>
 <div class="wrap">
+  <a class="back" href="/index.html">← Назад</a>
   <a class="back" href="/admin.html">← К сотрудникам</a>
   <h1>Журнал прихода / ухода</h1>
   <button onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.href='/login.html')" style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;">Выйти</button>

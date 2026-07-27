@@ -21,12 +21,50 @@
   }
   a.card .t, button.card .t { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
   a.card .d, button.card .d { font-size: 13px; color: var(--muted); }
+
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    align-items: center; justify-content: center; padding: 20px; z-index: 10;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px; width: 100%; max-width: 340px;
+  }
+  .modal h2 { font-size: 16px; margin: 0 0 16px; }
+  .modal input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); padding: 10px 12px; font-size: 14px; font-family: inherit; margin-bottom: 10px;
+  }
+  .modal .msg { font-size: 13px; margin-bottom: 10px; min-height: 16px; }
+  .modal .msg.error { color: #ff5470; }
+  .modal .msg.ok { color: #34c77b; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .modal-actions button {
+    flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
+  }
+  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 </style>
 </head>
 <body>
   <h1>УЧЁТ РАБОЧЕГО ВРЕМЕНИ</h1>
   <div class="who" id="who"></div>
   <div class="cards" id="cards">Загрузка…</div>
+
+  <div class="overlay" id="pwOverlay">
+    <div class="modal">
+      <h2>Сменить пароль</h2>
+      <input type="password" id="pwCurrent" placeholder="Текущий пароль" autocomplete="current-password" />
+      <input type="password" id="pwNew" placeholder="Новый пароль (мин. 6 символов)" autocomplete="new-password" />
+      <input type="password" id="pwNew2" placeholder="Повторите новый пароль" autocomplete="new-password" />
+      <div class="msg" id="pwMsg"></div>
+      <div class="modal-actions">
+        <button onclick="closePasswordModal()">Отмена</button>
+        <button class="primary" onclick="submitPasswordChange()">Сохранить</button>
+      </div>
+    </div>
+  </div>
 
 <script>
 async function init() {
@@ -71,6 +109,9 @@ async function init() {
         <div class="t">📊 Экспорт в Excel</div>
         <div class="d">Выбрать период и скачать таблицу</div>
       </a>
+      <button class="card" onclick="openPasswordModal()">
+        <div class="t">🔒 Сменить пароль</div>
+      </button>
       <button class="card" onclick="logout()">
         <div class="t">🚪 Выйти</div>
       </button>`;
@@ -80,6 +121,9 @@ async function init() {
         <div class="t">📷 Отметить приход/уход</div>
         <div class="d">Сканировать QR-код на посту охраны</div>
       </a>
+      <button class="card" onclick="openPasswordModal()">
+        <div class="t">🔒 Сменить пароль</div>
+      </button>
       <button class="card" onclick="logout()">
         <div class="t">🚪 Выйти</div>
       </button>`;
@@ -89,6 +133,59 @@ async function init() {
 async function logout() {
   await fetch('/api/auth/logout', { method: 'POST' });
   location.href = '/login.html';
+}
+
+function openPasswordModal() {
+  document.getElementById('pwCurrent').value = '';
+  document.getElementById('pwNew').value = '';
+  document.getElementById('pwNew2').value = '';
+  document.getElementById('pwMsg').textContent = '';
+  document.getElementById('pwMsg').className = 'msg';
+  document.getElementById('pwOverlay').classList.add('open');
+}
+
+function closePasswordModal() {
+  document.getElementById('pwOverlay').classList.remove('open');
+}
+
+async function submitPasswordChange() {
+  const current_password = document.getElementById('pwCurrent').value;
+  const new_password = document.getElementById('pwNew').value;
+  const new_password2 = document.getElementById('pwNew2').value;
+  const msg = document.getElementById('pwMsg');
+
+  if (!current_password || !new_password) {
+    msg.textContent = 'Заполните все поля';
+    msg.className = 'msg error';
+    return;
+  }
+  if (new_password !== new_password2) {
+    msg.textContent = 'Пароли не совпадают';
+    msg.className = 'msg error';
+    return;
+  }
+  if (new_password.length < 6) {
+    msg.textContent = 'Новый пароль должен быть не короче 6 символов';
+    msg.className = 'msg error';
+    return;
+  }
+
+  const resp = await fetch('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password, new_password }),
+  });
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось сменить пароль';
+    msg.className = 'msg error';
+    return;
+  }
+
+  msg.textContent = 'Пароль изменён';
+  msg.className = 'msg ok';
+  setTimeout(closePasswordModal, 1200);
 }
 
 init();

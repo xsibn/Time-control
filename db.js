@@ -205,12 +205,23 @@ function listAllLogsForExport(from = null, to = null) {
     });
 }
 
+function updateUserPassword(id, newPassword) {
+  const user = state.users.find(u => u.id === Number(id));
+  if (!user) return false;
+  const { hash, salt } = hashPassword(newPassword);
+  user.password_hash = hash;
+  user.password_salt = salt;
+  persist();
+  return true;
+}
+
 module.exports = {
   createUser,
   getUserById,
   getUserByLogin,
   getOrCreateSingletonAccount,
   verifyPassword,
+  updateUserPassword,
   listEmployees,
   setEmployeeActive,
   tryConsumeWindow,

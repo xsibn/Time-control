@@ -188,6 +188,22 @@ app.get('/api/auth/me', requireAuth(), (req, res) => {
   res.json(req.user);
 });
 
+app.post('/api/auth/change-password', requireAuth(), (req, res) => {
+  const { current_password, new_password } = req.body || {};
+  const user = db.getUserById(req.user.id);
+  if (!user) {
+    return res.status(401).json({ error: 'Требуется авторизация' });
+  }
+  if (!current_password || !db.verifyPassword(current_password, user.password_salt, user.password_hash)) {
+    return res.status(400).json({ error: 'Текущий пароль указан неверно' });
+  }
+  if (!new_password || new_password.length < 6) {
+    return res.status(400).json({ error: 'Новый пароль должен быть не короче 6 символов' });
+  }
+  db.updateUserPassword(user.id, new_password);
+  res.json({ ok: true });
+});
+
 // --- Сотрудники (только для охраны/админа) ---
 
 app.get('/api/employees', requireAuth('admin'), (req, res) => {

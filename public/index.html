@@ -4,6 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Учёт рабочего времени</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0f1420" />
+<link rel="icon" href="/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Учёт времени" />
 <style>
   :root { --bg:#0f1420; --panel:#161d2e; --accent:#4f8cff; --text:#eef1f8; --muted:#8a94ab; --border:#262f45; }
   * { box-sizing: border-box; }
@@ -45,11 +52,43 @@
     background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
   }
   .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+  .install-hint {
+    width: 100%; max-width: 340px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; display: none;
+    align-items: center; gap: 12px;
+  }
+  .install-hint.show { display: flex; }
+  .install-hint .icon {
+    width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+  }
+  .install-hint .body { flex: 1; min-width: 0; }
+  .install-hint .t { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .install-hint .d { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .install-hint .actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  .install-hint button {
+    font-family: inherit; font-size: 12px; padding: 7px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  }
+  .install-hint .btn-install { border: none; background: var(--accent); color: #fff; font-weight: 600; }
+  .install-hint .btn-dismiss { border: 1px solid var(--border); background: transparent; color: var(--muted); }
 </style>
 </head>
 <body>
   <h1>УЧЁТ РАБОЧЕГО ВРЕМЕНИ</h1>
   <div class="who" id="who"></div>
+
+  <div class="install-hint" id="installHint">
+    <img class="icon" src="/icons/icon-192.png" alt="" />
+    <div class="body">
+      <div class="t">Установите приложение</div>
+      <div class="d" id="installHintText">Работает быстрее и без адресной строки браузера</div>
+    </div>
+    <div class="actions">
+      <button class="btn-install" id="installBtn" onclick="doInstall()">Установить</button>
+      <button class="btn-dismiss" onclick="dismissInstallHint()">Не сейчас</button>
+    </div>
+  </div>
+
   <div class="cards" id="cards">Загрузка…</div>
 
   <div class="overlay" id="pwOverlay">
@@ -189,6 +228,73 @@ async function submitPasswordChange() {
 }
 
 init();
+</script>
+<script>
+// --- Подсказка об установке PWA (показывается один раз) ---
+const INSTALL_HINT_KEY = 'installHintDismissed';
+let deferredInstallPrompt = null;
+
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function isIos() {
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+}
+
+function maybeShowInstallHint() {
+  if (isStandalone()) return; // уже установлено — не показываем
+  if (localStorage.getItem(INSTALL_HINT_KEY)) return; // уже показывали раньше
+
+  const hint = document.getElementById('installHint');
+  const installBtn = document.getElementById('installBtn');
+  const text = document.getElementById('installHintText');
+
+  if (isIos()) {
+    // На iOS нет системного диалога установки — только ручная инструкция через "Поделиться"
+    text.textContent = 'Нажмите «Поделиться» → «На экран Домой»';
+    installBtn.style.display = 'none';
+    hint.classList.add('show');
+  } else if (deferredInstallPrompt) {
+    text.textContent = 'Работает быстрее и без адресной строки браузера';
+    hint.classList.add('show');
+  }
+  // Если deferredInstallPrompt ещё не пришёл (Android/desktop Chrome) — покажем,
+  // как только сработает событие beforeinstallprompt (см. ниже).
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  maybeShowInstallHint();
+});
+
+async function doInstall() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  dismissInstallHint();
+}
+
+function dismissInstallHint() {
+  document.getElementById('installHint').classList.remove('show');
+  localStorage.setItem(INSTALL_HINT_KEY, '1');
+}
+
+window.addEventListener('appinstalled', () => {
+  localStorage.setItem(INSTALL_HINT_KEY, '1');
+});
+
+// Для iOS событие beforeinstallprompt не существует — показываем инструкцию сразу
+if (isIos()) maybeShowInstallHint();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>

@@ -81,7 +81,7 @@ function verifyPassword(password, salt, expectedHash) {
 
 // --- Пользователи ---
 
-function createUser({ role, full_name, login, password, work_start = null, work_end = null }) {
+function createUser({ role, full_name, login, password, work_start = null, work_end = null, position = '' }) {
   if (state.users.some(u => u.login === login)) {
     const err = new Error('Такой логин уже занят');
     err.code = 'DUPLICATE_LOGIN';
@@ -97,6 +97,7 @@ function createUser({ role, full_name, login, password, work_start = null, work_
     password_salt: salt,
     work_start,
     work_end,
+    position,
     active: 1,
     last_window: 0,
     created_at: nowIso(),
@@ -125,6 +126,18 @@ function listEmployees() {
     .filter(u => u.role === 'employee')
     .slice()
     .sort((a, b) => b.id - a.id);
+}
+
+// Админ задаёт график (время смены) и должность сотрудника — сам сотрудник
+// это больше не выбирает при регистрации.
+function updateEmployeeSchedule(id, { work_start, work_end, position }) {
+  const user = state.users.find(u => u.id === Number(id) && u.role === 'employee');
+  if (!user) return null;
+  if (work_start !== undefined) user.work_start = work_start || null;
+  if (work_end !== undefined) user.work_end = work_end || null;
+  if (position !== undefined) user.position = position || '';
+  persist();
+  return user;
 }
 
 function setEmployeeActive(id, active) {
@@ -215,7 +228,61 @@ function updateUserPassword(id, newPassword) {
   return true;
 }
 
+// Удаляет отметки прихода/ухода старше N месяцев — вызывается по расписанию
+// из server.js. Возвращает количество удалённых записей.
+function purgeLogsOlderThan(months) {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - months);
+  const cutoffStr = cutoff.toISOString().slice(0, 19).replace('T', ' ');
+
+  const before = state.time_logs.length;
+  state.time_logs = state.time_logs.filter(l => l.timestamp >= cutoffStr);
+  const removed = before - state.time_logs.length;
+
+  if (removed > 0) persist();
+  return removed;
+}
+
+// Ручное создание отметки администратором — timestamp передаётся явно
+// (в отличие от addLog, который всегда ставит текущее время при сканировании QR).
+function addManualLog(employeeId, type, timestamp) {
+  const log = {
+    id: state.next_log_id++,
+    employee_id: Number(employeeId),
+    type,
+    timestamp,
+    manual: true,
+  };
+  state.time_logs.push(log);
+  persist();
+  return log;
+}
+
+function getLogById(id) {
+  return state.time_logs.find(l => l.id === Number(id)) || null;
+}
+
+function updateLog(id, { type, timestamp }) {
+  const log = getLogById(id);
+  if (!log) return null;
+  if (type) log.type = type;
+  if (timestamp) log.timestamp = timestamp;
+  log.edited = true;
+  persist();
+  return log;
+}
+
+function deleteLog(id) {
+  const before = state.time_logs.length;
+  state.time_logs = state.time_logs.filter(l => l.id !== Number(id));
+  const removed = before !== state.time_logs.length;
+  if (removed) persist();
+  return removed;
+}
+
 module.exports = {
+  getSetting,
+  setSetting,
   createUser,
   getUserById,
   getUserByLogin,
@@ -224,11 +291,17 @@ module.exports = {
   updateUserPassword,
   listEmployees,
   setEmployeeActive,
+  updateEmployeeSchedule,
   tryConsumeWindow,
   getLastLogForEmployee,
   addLog,
+  addManualLog,
+  getLogById,
+  updateLog,
+  deleteLog,
   listLogs,
   listAllLogsForExport,
+  purgeLogsOlderThan,
   getOrCreateGuardSecret,
   getOrCreateSessionSecret,
 };

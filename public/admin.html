@@ -59,6 +59,34 @@
   .badge.active { background: rgba(52,199,123,0.15); color: #34c77b; }
   .badge.inactive { background: rgba(255,84,112,0.15); color: #ff5470; }
   .mono { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    align-items: center; justify-content: center; padding: 20px; z-index: 10;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px; width: 100%; max-width: 360px;
+  }
+  .modal h2 { font-size: 16px; margin: 0 0 16px; }
+  .modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .modal input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); padding: 9px 12px; font-size: 14px; font-family: inherit;
+    color-scheme: dark;
+  }
+  .modal .row { display: flex; gap: 10px; }
+  .modal .row > div { flex: 1; }
+  .modal .msg { font-size: 13px; margin-top: 10px; min-height: 16px; }
+  .modal .msg.error { color: #ff5470; }
+  .modal .msg.ok { color: #34c77b; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .modal-actions button {
+    flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
+  }
+  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -79,19 +107,44 @@
   </form>
   <h1>Сотрудники</h1>
   <div class="sub">
-    Сотрудники регистрируются самостоятельно на странице входа — здесь можно посмотреть список
-    и включить/отключить пропуск.
+    Сотрудники регистрируются самостоятельно на странице входа. График работы и должность
+    задаёт администратор — здесь можно посмотреть список, изменить график и включить/отключить пропуск.
   </div>
 
   <table>
     <thead>
-      <tr><th>ФИО</th><th>Логин</th><th>График</th><th>Статус</th><th>Действия</th></tr>
+      <tr><th>ФИО</th><th>Логин</th><th>Должность</th><th>График</th><th>Статус</th><th>Действия</th></tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
 </div>
 
+<div class="overlay" id="scheduleOverlay">
+  <div class="modal">
+    <h2>График и должность</h2>
+    <label>Должность</label>
+    <input type="text" id="schedPosition" placeholder="Например, Кладовщик" />
+    <div class="row">
+      <div>
+        <label>Начало работы</label>
+        <input type="time" id="schedStart" />
+      </div>
+      <div>
+        <label>Конец работы</label>
+        <input type="time" id="schedEnd" />
+      </div>
+    </div>
+    <div class="msg" id="schedMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closeScheduleModal()">Отмена</button>
+      <button class="primary" onclick="submitSchedule()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
 <script>
+let currentEmployees = [];
+
 async function checkAuth() {
   const resp = await fetch('/api/auth/me');
   if (!resp.ok) { location.href = '/login.html'; return false; }
@@ -109,18 +162,21 @@ async function loadEmployees() {
   const resp = await fetch('/api/employees');
   if (resp.status === 401 || resp.status === 403) { location.href = '/login.html'; return; }
   const employees = await resp.json();
+  currentEmployees = employees;
   const rows = document.getElementById('rows');
   rows.innerHTML = employees.map(e => `
     <tr>
       <td>${escapeHtml(e.full_name)}</td>
       <td class="mono">${escapeHtml(e.login)}</td>
+      <td>${escapeHtml(e.position || '—')}</td>
       <td class="mono">${escapeHtml(e.work_start || '—')}–${escapeHtml(e.work_end || '—')}</td>
       <td><span class="badge ${e.active ? 'active' : 'inactive'}">${e.active ? 'Активен' : 'Отключён'}</span></td>
       <td>
+        <button class="btn-small" onclick="openScheduleModal(${e.id})">✏️ График</button>
         <button class="btn-small" onclick="toggleActive(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'Отключить' : 'Включить'}</button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="5" style="color:#8a94ab;">Пока нет зарегистрированных сотрудников</td></tr>';
+  `).join('') || '<tr><td colspan="6" style="color:#8a94ab;">Пока нет зарегистрированных сотрудников</td></tr>';
 }
 
 async function toggleActive(id, active) {
@@ -136,6 +192,52 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// --- Редактирование графика/должности ---
+
+let editingEmployeeId = null;
+
+function openScheduleModal(id) {
+  const emp = currentEmployees.find(e => e.id === id);
+  if (!emp) return;
+  editingEmployeeId = id;
+  document.getElementById('schedPosition').value = emp.position || '';
+  document.getElementById('schedStart').value = emp.work_start || '';
+  document.getElementById('schedEnd').value = emp.work_end || '';
+  document.getElementById('schedMsg').textContent = '';
+  document.getElementById('schedMsg').className = 'msg';
+  document.getElementById('scheduleOverlay').classList.add('open');
+}
+
+function closeScheduleModal() {
+  document.getElementById('scheduleOverlay').classList.remove('open');
+  editingEmployeeId = null;
+}
+
+async function submitSchedule() {
+  if (!editingEmployeeId) return;
+  const position = document.getElementById('schedPosition').value.trim();
+  const work_start = document.getElementById('schedStart').value;
+  const work_end = document.getElementById('schedEnd').value;
+  const msg = document.getElementById('schedMsg');
+
+  const resp = await fetch(`/api/employees/${editingEmployeeId}/schedule`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ position, work_start, work_end }),
+  });
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось сохранить';
+    msg.className = 'msg error';
+    return;
+  }
+
+  msg.textContent = 'Сохранено';
+  msg.className = 'msg ok';
+  setTimeout(() => { closeScheduleModal(); loadEmployees(); }, 600);
 }
 
 (async () => {

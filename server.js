@@ -119,21 +119,15 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/; // ЧЧ:ММ, 24-часовой формат
+
 
 // --- Аутентификация ---
 
 app.post('/api/auth/register', (req, res) => {
-  const { full_name, work_start, work_end, login, password } = req.body || {};
+  const { full_name, login, password } = req.body || {};
 
   if (!full_name || !full_name.trim()) {
     return res.status(400).json({ error: 'Укажите ФИО' });
-  }
-  if (!TIME_RE.test(work_start || '')) {
-    return res.status(400).json({ error: 'Время начала работы укажите в формате ЧЧ:ММ (24 часа)' });
-  }
-  if (!TIME_RE.test(work_end || '')) {
-    return res.status(400).json({ error: 'Время окончания работы укажите в формате ЧЧ:ММ (24 часа)' });
   }
   if (!login || login.trim().length < 3) {
     return res.status(400).json({ error: 'Логин должен быть не короче 3 символов' });
@@ -152,8 +146,6 @@ app.post('/api/auth/register', (req, res) => {
       full_name: full_name.trim(),
       login: login.trim(),
       password,
-      work_start,
-      work_end,
     });
   } catch (err) {
     return res.status(409).json({ error: 'Такой логин уже занят' });
@@ -215,6 +207,28 @@ app.patch('/api/employees/:id/active', requireAuth('admin'), (req, res) => {
   const { active } = req.body || {};
   db.setEmployeeActive(id, !!active);
   res.json(db.getUserById(id));
+});
+
+// Админ задаёт график работы (время смены) и должность сотрудника —
+// сам сотрудник это больше не выбирает при регистрации.
+const SCHEDULE_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+app.patch('/api/employees/:id/schedule', requireAuth('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  const { work_start, work_end, position } = req.body || {};
+
+  if (work_start && !SCHEDULE_TIME_RE.test(work_start)) {
+    return res.status(400).json({ error: 'Начало работы укажите в формате ЧЧ:ММ' });
+  }
+  if (work_end && !SCHEDULE_TIME_RE.test(work_end)) {
+    return res.status(400).json({ error: 'Конец работы укажите в формате ЧЧ:ММ' });
+  }
+
+  const user = db.updateEmployeeSchedule(id, { work_start, work_end, position });
+  if (!user) {
+    return res.status(404).json({ error: 'Сотрудник не найден' });
+  }
+  res.json(user);
 });
 
 // --- QR-код охранника (обновляется каждую минуту, доступен только охране) ---
@@ -294,6 +308,67 @@ app.get('/api/logs', requireAuth('admin'), (req, res) => {
   res.json(db.listLogs());
 });
 
+// Часовой пояс сервера — тот же, что использует nowIso() в db.js (UTC).
+// Валидируем формат вручную вводимого времени: 'YYYY-MM-DD HH:MM' или
+// 'YYYY-MM-DD HH:MM:SS', приводим ко второму варианту.
+function normalizeTimestamp(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const m = raw.trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2})?$/);
+  if (!m) return null;
+  const seconds = m[3] || ':00';
+  return `${m[1]} ${m[2]}${seconds}`;
+}
+
+// Ручное добавление отметки (приход/уход) администратором — например, если
+// сотрудник забыл отсканировать QR или телефон не сработал.
+app.post('/api/logs', requireAuth('admin'), (req, res) => {
+  const { employee_id, type, timestamp } = req.body || {};
+  const employee = db.getUserById(employee_id);
+  if (!employee || employee.role !== 'employee') {
+    return res.status(404).json({ error: 'Сотрудник не найден' });
+  }
+  if (type !== 'in' && type !== 'out') {
+    return res.status(400).json({ error: 'Тип отметки должен быть "in" или "out"' });
+  }
+  const ts = normalizeTimestamp(timestamp) || (() => {
+    const now = new Date();
+    return now.toISOString().slice(0, 19).replace('T', ' ');
+  })();
+  const log = db.addManualLog(employee.id, type, ts);
+  res.json({ ...log, full_name: employee.full_name, login: employee.login });
+});
+
+// Редактирование существующей отметки (время и/или тип).
+app.patch('/api/logs/:id', requireAuth('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  const { type, timestamp } = req.body || {};
+  if (type && type !== 'in' && type !== 'out') {
+    return res.status(400).json({ error: 'Тип отметки должен быть "in" или "out"' });
+  }
+  let ts;
+  if (timestamp) {
+    ts = normalizeTimestamp(timestamp);
+    if (!ts) {
+      return res.status(400).json({ error: 'Некорректный формат времени' });
+    }
+  }
+  const log = db.updateLog(id, { type, timestamp: ts });
+  if (!log) {
+    return res.status(404).json({ error: 'Запись не найдена' });
+  }
+  const employee = db.getUserById(log.employee_id);
+  res.json({ ...log, full_name: employee ? employee.full_name : '—' });
+});
+
+// Удаление ошибочной отметки.
+app.delete('/api/logs/:id', requireAuth('admin'), (req, res) => {
+  const removed = db.deleteLog(req.params.id);
+  if (!removed) {
+    return res.status(404).json({ error: 'Запись не найдена' });
+  }
+  res.json({ ok: true });
+});
+
 // Сводим сырые отметки "приход"/"уход" в пары смен по каждому сотруднику
 // (та же логика, что в logs.html на клиенте).
 function pairShiftsByEmployee(logs) {
@@ -333,93 +408,127 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
   workbook.creator = 'Учёт рабочего времени';
   workbook.created = new Date();
 
-  // Лист "Сотрудники" — сводная таблица: сотрудник, график, дни
-  // (в каждом дне — приход/уход/отработано часов)
-  const employeesSheet = workbook.addWorksheet('Сотрудники');
-
   const allLogsForSummary = db.listAllLogsForExport(from, to);
   const summaryShifts = pairShiftsByEmployee(allLogsForSummary);
 
-  // Собираем набор дат, встречающихся в сменах, по возрастанию
-  const dateSet = new Set();
-  for (const s of summaryShifts) {
-    const inDate = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
-    dateSet.add(inDate.toISOString().slice(0, 10));
-  }
-  const dates = Array.from(dateSet).sort();
+  // --- Листы "Табель" (по одному на месяц), формат как в образце заказчика:
+  // № / ФИО / Должность / по два столбца "д"(день)/"н"(ночь) на каждый день месяца,
+  // в них — отработанные часы за смену. Дневная/ночная колонка определяется
+  // графиком, который задаёт администратор (после 18:00 или до 6:00 — ночная).
 
-  // Смены по сотруднику и дате: employeeKey -> date -> { time_in, time_out, hours }
-  const byEmployeeDate = new Map();
-  const employeeMeta = new Map(); // employeeKey -> { full_name, login }
+  const RU_MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+  const RU_WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб']; // индекс = getUTCDay()
+
+  function daysInMonth(year, month0) {
+    return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+  }
+  function isNightSchedule(employee) {
+    if (!employee || !employee.work_start) return false;
+    const hour = Number(String(employee.work_start).slice(0, 2));
+    return hour >= 18 || hour < 6;
+  }
+
+  // Часы по сменам: employeeId -> 'YYYY-MM-DD' -> суммарные часы (только завершённые смены)
+  const hoursByEmployeeDate = new Map();
   for (const s of summaryShifts) {
-    const key = s.login || s.full_name;
+    if (!s.out) continue; // смена ещё не завершена — не включаем в табель
     const inDate = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
-    const outDate = s.out ? new Date(s.out.timestamp.replace(' ', 'T') + 'Z') : null;
+    const outDate = new Date(s.out.timestamp.replace(' ', 'T') + 'Z');
     const dateKey = inDate.toISOString().slice(0, 10);
-    const hours = outDate ? Math.round(((outDate - inDate) / 3600000) * 100) / 100 : '';
-    if (!employeeMeta.has(key)) employeeMeta.set(key, { full_name: s.full_name, login: s.login });
-    if (!byEmployeeDate.has(key)) byEmployeeDate.set(key, new Map());
-    byEmployeeDate.get(key).set(dateKey, {
-      time_in: inDate.toISOString().slice(11, 16),
-      time_out: outDate ? outDate.toISOString().slice(11, 16) : 'ещё на месте',
-      hours,
-    });
-  }
-  // Добавляем сотрудников без смен в выбранном периоде (пустые дни)
-  for (const emp of db.listEmployees()) {
-    const key = emp.login;
-    if (!employeeMeta.has(key)) employeeMeta.set(key, { full_name: emp.full_name, login: emp.login });
+    const hours = Math.round(((outDate - inDate) / 3600000) * 10) / 10;
+    if (!hoursByEmployeeDate.has(s.employee_id)) hoursByEmployeeDate.set(s.employee_id, new Map());
+    const perDate = hoursByEmployeeDate.get(s.employee_id);
+    perDate.set(dateKey, (perDate.get(dateKey) || 0) + hours);
   }
 
-  const FIXED_COLS = 2; // Сотрудник, График
-  const COLS_PER_DAY = 3; // Приход, Уход, Часы
-
-  // Заголовок листа: 2 фиксированных столбца + по 3 столбца на каждый день
-  employeesSheet.mergeCells(1, 1, 2, 1);
-  employeesSheet.getCell(1, 1).value = 'Сотрудник';
-  employeesSheet.mergeCells(1, 2, 2, 2);
-  employeesSheet.getCell(1, 2).value = 'График';
-  dates.forEach((date, i) => {
-    const startCol = FIXED_COLS + 1 + i * COLS_PER_DAY;
-    employeesSheet.mergeCells(1, startCol, 1, startCol + COLS_PER_DAY - 1);
-    employeesSheet.getCell(1, startCol).value = date;
-    employeesSheet.getCell(1, startCol).alignment = { horizontal: 'center' };
-    employeesSheet.getCell(2, startCol).value = 'Приход';
-    employeesSheet.getCell(2, startCol + 1).value = 'Уход';
-    employeesSheet.getCell(2, startCol + 2).value = 'Часы';
-  });
-  employeesSheet.getRow(1).font = { bold: true };
-  employeesSheet.getRow(2).font = { bold: true };
-
-  employeesSheet.getColumn(1).width = 30;
-  employeesSheet.getColumn(2).width = 16;
-  for (let i = 0; i < dates.length; i++) {
-    employeesSheet.getColumn(FIXED_COLS + 1 + i * COLS_PER_DAY).width = 10;
-    employeesSheet.getColumn(FIXED_COLS + 2 + i * COLS_PER_DAY).width = 10;
-    employeesSheet.getColumn(FIXED_COLS + 3 + i * COLS_PER_DAY).width = 10;
+  // Определяем список месяцев для листов: если указан период — все месяцы
+  // в нём; иначе — месяцы, в которых реально есть отметки; если отметок
+  // нет вовсе — текущий месяц.
+  const monthKeys = new Set();
+  if (from || to) {
+    const start = from ? new Date(from + 'T00:00:00Z') : (() => {
+      const d = new Date(to + 'T00:00:00Z'); d.setUTCDate(1); return d;
+    })();
+    const end = to ? new Date(to + 'T00:00:00Z') : start;
+    let cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+    const endCursor = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
+    while (cursor <= endCursor) {
+      monthKeys.add(`${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`);
+      cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+    }
+  } else {
+    for (const s of summaryShifts) {
+      const d = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
+      monthKeys.add(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+    if (!monthKeys.size) {
+      const now = new Date();
+      monthKeys.add(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
   }
 
-  let rowIdx = 3;
-  const employeesByLogin = new Map(db.listEmployees().map(e => [e.login, e]));
-  for (const [key, meta] of employeeMeta) {
-    const empRecord = employeesByLogin.get(key);
-    const schedule = empRecord && empRecord.work_start && empRecord.work_end
-      ? `${empRecord.work_start}\u2013${empRecord.work_end}`
-      : '';
-    const row = employeesSheet.getRow(rowIdx);
-    row.getCell(1).value = meta.full_name;
-    row.getCell(2).value = schedule;
-    const daysForEmp = byEmployeeDate.get(key);
-    dates.forEach((date, i) => {
-      const startCol = FIXED_COLS + 1 + i * COLS_PER_DAY;
-      const day = daysForEmp ? daysForEmp.get(date) : null;
-      if (day) {
-        row.getCell(startCol).value = day.time_in;
-        row.getCell(startCol + 1).value = day.time_out;
-        row.getCell(startCol + 2).value = day.hours;
+  const employees = db.listEmployees().slice().sort((a, b) => a.id - b.id);
+
+  for (const monthKey of Array.from(monthKeys).sort()) {
+    const [year, month1] = monthKey.split('-').map(Number);
+    const month0 = month1 - 1;
+    const numDays = daysInMonth(year, month0);
+    const sheetName = `${RU_MONTHS[month0]} ${String(year).slice(2)}`;
+    const sheet = workbook.addWorksheet(sheetName.slice(0, 31));
+
+    const FIXED_COLS = 3; // №, ФИО, Должность
+    const COLS_PER_DAY = 2; // д, н
+
+    // Заголовки: число месяца (объединено на д/н), день недели (объединено), затем подписи д/н
+    sheet.mergeCells(1, 1, 3, 1);
+    sheet.getCell(1, 1).value = '№';
+    sheet.mergeCells(1, 2, 3, 2);
+    sheet.getCell(1, 2).value = 'Ф.И.О';
+    sheet.mergeCells(1, 3, 3, 3);
+    sheet.getCell(1, 3).value = 'Должность';
+
+    for (let day = 1; day <= numDays; day++) {
+      const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
+      const dateObj = new Date(Date.UTC(year, month0, day));
+      sheet.mergeCells(1, startCol, 1, startCol + 1);
+      sheet.getCell(1, startCol).value = day;
+      sheet.getCell(1, startCol).alignment = { horizontal: 'center' };
+      sheet.mergeCells(2, startCol, 2, startCol + 1);
+      sheet.getCell(2, startCol).value = RU_WEEKDAYS[dateObj.getUTCDay()];
+      sheet.getCell(2, startCol).alignment = { horizontal: 'center' };
+      sheet.getCell(3, startCol).value = 'д';
+      sheet.getCell(3, startCol + 1).value = 'н';
+    }
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(2).font = { bold: true, color: { argb: 'FF8A94AB' } };
+    sheet.getRow(3).font = { bold: true };
+
+    sheet.getColumn(1).width = 5;
+    sheet.getColumn(2).width = 30;
+    sheet.getColumn(3).width = 26;
+    for (let day = 1; day <= numDays; day++) {
+      const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
+      sheet.getColumn(startCol).width = 5;
+      sheet.getColumn(startCol + 1).width = 5;
+    }
+
+    employees.forEach((emp, idx) => {
+      const rowNum = 4 + idx;
+      const row = sheet.getRow(rowNum);
+      row.getCell(1).value = idx + 1;
+      row.getCell(2).value = emp.full_name;
+      row.getCell(3).value = emp.position || '';
+
+      const perDate = hoursByEmployeeDate.get(emp.id);
+      const night = isNightSchedule(emp);
+      for (let day = 1; day <= numDays; day++) {
+        const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const hours = perDate ? perDate.get(dateKey) : undefined;
+        if (hours === undefined) continue;
+        const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
+        row.getCell(night ? startCol + 1 : startCol).value = hours;
       }
     });
-    rowIdx++;
   }
 
   // Лист "Смены" — приход/уход, сведённые в пары
@@ -481,6 +590,31 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
   await workbook.xlsx.write(res);
   res.end();
 });
+
+// --- Автоочистка старого журнала (раз в 6 месяцев) ---
+// Храним дату последней очистки в settings; при старте и раз в сутки
+// проверяем, не пора ли снова очищать. Так очистка переживает рестарты
+// pm2 и не зависит от того, сколько времени сервер был запущен непрерывно.
+const LOG_RETENTION_MONTHS = 6;
+const CLEANUP_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // раз в сутки
+
+function runScheduledCleanupIfDue() {
+  const lastRun = db.getSetting('last_log_cleanup');
+  const now = new Date();
+
+  if (lastRun) {
+    const next = new Date(lastRun);
+    next.setMonth(next.getMonth() + LOG_RETENTION_MONTHS);
+    if (now < next) return; // ещё не пора
+  }
+
+  const removed = db.purgeLogsOlderThan(LOG_RETENTION_MONTHS);
+  db.setSetting('last_log_cleanup', now.toISOString());
+  console.log(`Автоочистка журнала: удалено записей старше ${LOG_RETENTION_MONTHS} мес. — ${removed}`);
+}
+
+runScheduledCleanupIfDue();
+setInterval(runScheduledCleanupIfDue, CLEANUP_CHECK_INTERVAL_MS);
 
 app.listen(PORT, () => {
   console.log(`Сервер запущен: http://localhost:${PORT}`);

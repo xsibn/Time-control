@@ -55,6 +55,46 @@
     padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
     color: white; font-weight: 600; cursor: pointer; font-size: 13px;
   }
+  .add-row {
+    display: flex; justify-content: flex-end; margin: 0 0 4px;
+  }
+  .add-btn {
+    padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .cell-actions { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle; }
+  .icon-btn {
+    border: none; background: transparent; color: var(--muted); cursor: pointer;
+    font-size: 13px; padding: 2px 4px; border-radius: 6px; line-height: 1;
+  }
+  .icon-btn:hover { color: var(--text); background: var(--border); }
+
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    align-items: center; justify-content: center; padding: 20px; z-index: 10;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px; width: 100%; max-width: 360px;
+  }
+  .modal h2 { font-size: 16px; margin: 0 0 16px; }
+  .modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .modal select, .modal input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); padding: 9px 12px; font-size: 14px; font-family: inherit;
+    color-scheme: dark;
+  }
+  .modal .msg { font-size: 13px; margin-top: 10px; min-height: 16px; }
+  .modal .msg.error { color: var(--red); }
+  .modal .msg.ok { color: var(--green); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .modal-actions button {
+    flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
+  }
+  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .modal-actions button.danger { background: var(--red); border-color: var(--red); color: #fff; }
 </style>
 </head>
 <body>
@@ -72,12 +112,74 @@
     <button type="submit">Скачать</button>
     <span class="export-label">(оставьте пустым — весь период)</span>
   </form>
-  <div class="sub">Приход и уход определяются автоматически по очереди сканирований. Здесь они сведены по сменам.</div>
+  <div class="sub">Приход и уход определяются автоматически по очереди сканирований. Здесь они сведены по сменам. Можно добавить отметку вручную или отредактировать существующую.</div>
+
+  <div class="add-row">
+    <button class="add-btn" onclick="openAddModal()">➕ Добавить отметку</button>
+  </div>
+
   <div id="content">Загрузка…</div>
   <div class="refresh">Обновляется автоматически каждые 15 секунд</div>
 </div>
 
+<div class="overlay" id="addOverlay">
+  <div class="modal">
+    <h2>Добавить отметку</h2>
+    <label>Сотрудник</label>
+    <select id="addEmployee"></select>
+    <label>Тип</label>
+    <select id="addType">
+      <option value="in">Приход</option>
+      <option value="out">Уход</option>
+    </select>
+    <label>Дата и время</label>
+    <input type="datetime-local" id="addTimestamp" />
+    <div class="msg" id="addMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closeAddModal()">Отмена</button>
+      <button class="primary" onclick="submitAdd()">Добавить</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editOverlay">
+  <div class="modal">
+    <h2>Редактировать отметку</h2>
+    <label>Тип</label>
+    <select id="editType">
+      <option value="in">Приход</option>
+      <option value="out">Уход</option>
+    </select>
+    <label>Дата и время</label>
+    <input type="datetime-local" id="editTimestamp" />
+    <div class="msg" id="editMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closeEditModal()">Отмена</button>
+      <button class="danger" onclick="submitDelete()">Удалить</button>
+      <button class="primary" onclick="submitEdit()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
 <script>
+let currentLogs = [];
+let currentEmployees = [];
+
+// Хранилище отдаёт время в UTC как 'YYYY-MM-DD HH:MM:SS'. Для полей
+// datetime-local нужно локальное время браузера — конвертируем в обе стороны,
+// чтобы то, что видит админ в таблице (локальное время), совпадало с тем,
+// что он редактирует в форме.
+function utcTimestampToLocalInputValue(ts) {
+  const d = new Date(ts.replace(' ', 'T') + 'Z');
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function localInputValueToUtcTimestamp(value) {
+  const d = new Date(value); // трактуется как локальное время браузера
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
 function pairShifts(logs, employeeId) {
   // logs приходят от новых к старым — разворачиваем в хронологический порядок
   const own = logs.filter(l => l.employee_id === employeeId).slice().reverse();
@@ -126,6 +228,8 @@ async function load() {
   if (logsResp.status === 401 || logsResp.status === 403) { location.href = '/login.html'; return; }
   const logs = await logsResp.json();
   const employees = await employeesResp.json();
+  currentLogs = logs;
+  currentEmployees = employees;
 
   // Собираем смены по каждому сотруднику, затем сводим всё в один список с датой
   const allShifts = [];
@@ -162,8 +266,16 @@ async function load() {
           ${shifts.map(s => `
             <tr>
               <td>${escapeHtml(s.employee.full_name)}</td>
-              <td class="time-in">${formatTime(s.in.timestamp)}</td>
-              <td class="${s.out ? 'time-out' : 'time-out pending'}">${s.out ? formatTime(s.out.timestamp) : 'ещё на месте'}</td>
+              <td class="time-in">
+                ${formatTime(s.in.timestamp)}
+                <span class="cell-actions">
+                  <button class="icon-btn" title="Редактировать" onclick="openEditModal(${s.in.id})">✏️</button>
+                </span>
+              </td>
+              <td class="${s.out ? 'time-out' : 'time-out pending'}">
+                ${s.out ? formatTime(s.out.timestamp) : 'ещё на месте'}
+                ${s.out ? `<span class="cell-actions"><button class="icon-btn" title="Редактировать" onclick="openEditModal(${s.out.id})">✏️</button></span>` : ''}
+              </td>
               <td class="duration">${s.out ? formatDuration(s.in.timestamp, s.out.timestamp) : '—'}</td>
             </tr>
           `).join('')}
@@ -177,6 +289,127 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// --- Добавление отметки вручную ---
+
+function openAddModal() {
+  const select = document.getElementById('addEmployee');
+  select.innerHTML = currentEmployees
+    .map(e => `<option value="${e.id}">${escapeHtml(e.full_name)}</option>`)
+    .join('');
+  document.getElementById('addType').value = 'in';
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  document.getElementById('addTimestamp').value =
+    `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  document.getElementById('addMsg').textContent = '';
+  document.getElementById('addMsg').className = 'msg';
+  document.getElementById('addOverlay').classList.add('open');
+}
+
+function closeAddModal() {
+  document.getElementById('addOverlay').classList.remove('open');
+}
+
+async function submitAdd() {
+  const employee_id = document.getElementById('addEmployee').value;
+  const type = document.getElementById('addType').value;
+  const localValue = document.getElementById('addTimestamp').value;
+  const msg = document.getElementById('addMsg');
+
+  if (!employee_id || !localValue) {
+    msg.textContent = 'Заполните все поля';
+    msg.className = 'msg error';
+    return;
+  }
+
+  const timestamp = localInputValueToUtcTimestamp(localValue);
+  const resp = await fetch('/api/logs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id, type, timestamp }),
+  });
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось добавить отметку';
+    msg.className = 'msg error';
+    return;
+  }
+
+  msg.textContent = 'Отметка добавлена';
+  msg.className = 'msg ok';
+  setTimeout(() => { closeAddModal(); load(); }, 700);
+}
+
+// --- Редактирование / удаление существующей отметки ---
+
+let editingLogId = null;
+
+function openEditModal(logId) {
+  const log = currentLogs.find(l => l.id === logId);
+  if (!log) return;
+  editingLogId = logId;
+  document.getElementById('editType').value = log.type;
+  document.getElementById('editTimestamp').value = utcTimestampToLocalInputValue(log.timestamp);
+  document.getElementById('editMsg').textContent = '';
+  document.getElementById('editMsg').className = 'msg';
+  document.getElementById('editOverlay').classList.add('open');
+}
+
+function closeEditModal() {
+  document.getElementById('editOverlay').classList.remove('open');
+  editingLogId = null;
+}
+
+async function submitEdit() {
+  if (!editingLogId) return;
+  const type = document.getElementById('editType').value;
+  const localValue = document.getElementById('editTimestamp').value;
+  const msg = document.getElementById('editMsg');
+
+  if (!localValue) {
+    msg.textContent = 'Укажите дату и время';
+    msg.className = 'msg error';
+    return;
+  }
+
+  const timestamp = localInputValueToUtcTimestamp(localValue);
+  const resp = await fetch(`/api/logs/${editingLogId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, timestamp }),
+  });
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось сохранить изменения';
+    msg.className = 'msg error';
+    return;
+  }
+
+  msg.textContent = 'Сохранено';
+  msg.className = 'msg ok';
+  setTimeout(() => { closeEditModal(); load(); }, 700);
+}
+
+async function submitDelete() {
+  if (!editingLogId) return;
+  if (!confirm('Удалить эту отметку без возможности восстановления?')) return;
+
+  const msg = document.getElementById('editMsg');
+  const resp = await fetch(`/api/logs/${editingLogId}`, { method: 'DELETE' });
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось удалить отметку';
+    msg.className = 'msg error';
+    return;
+  }
+
+  closeEditModal();
+  load();
 }
 
 (async () => {

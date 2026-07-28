@@ -34,7 +34,6 @@
     background: #0f1420; color: var(--text); font-size: 15px; width: 100%;
     color-scheme: dark;
   }
-  .row { display: flex; flex-direction: column; gap: 12px; }
   label { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: block; }
   button.submit {
     padding: 13px; border-radius: 10px; border: none; background: var(--accent);
@@ -68,16 +67,6 @@
       <div>
         <label>ФИО</label>
         <input type="text" id="regFullName" required />
-      </div>
-      <div class="row">
-        <div>
-          <label>Начало работы</label>
-          <input type="time" id="regStart" required />
-        </div>
-        <div>
-          <label>Конец работы</label>
-          <input type="time" id="regEnd" required />
-        </div>
       </div>
       <div>
         <label>Логин</label>
@@ -128,19 +117,11 @@ document.getElementById('registerForm').addEventListener('submit', async (e) => 
   e.preventDefault();
   const errEl = document.getElementById('registerError');
   errEl.textContent = '';
-  const work_start = document.getElementById('regStart').value;
-  const work_end = document.getElementById('regEnd').value;
-  if (!work_start || !work_end) {
-    errEl.textContent = 'Укажите время начала и окончания работы';
-    return;
-  }
   const resp = await fetch('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       full_name: document.getElementById('regFullName').value.trim(),
-      work_start,
-      work_end,
       login: document.getElementById('regLogin').value.trim(),
       password: document.getElementById('regPassword').value,
     }),

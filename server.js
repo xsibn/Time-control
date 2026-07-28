@@ -123,39 +123,6 @@ function safeEqual(a, b) {
 
 // --- Аутентификация ---
 
-app.post('/api/auth/register', (req, res) => {
-  const { full_name, login, password } = req.body || {};
-
-  if (!full_name || !full_name.trim()) {
-    return res.status(400).json({ error: 'Укажите ФИО' });
-  }
-  if (!login || login.trim().length < 3) {
-    return res.status(400).json({ error: 'Логин должен быть не короче 3 символов' });
-  }
-  if (!password || password.length < 6) {
-    return res.status(400).json({ error: 'Пароль должен быть не короче 6 символов' });
-  }
-  if (db.getUserByLogin(login.trim())) {
-    return res.status(409).json({ error: 'Такой логин уже занят' });
-  }
-
-  let user;
-  try {
-    user = db.createUser({
-      role: 'employee',
-      full_name: full_name.trim(),
-      login: login.trim(),
-      password,
-    });
-  } catch (err) {
-    return res.status(409).json({ error: 'Такой логин уже занят' });
-  }
-
-  const sid = createSession(user);
-  res.setHeader('Set-Cookie', `${SID_COOKIE}=${signSid(sid)}; HttpOnly; Path=/; SameSite=Lax`);
-  res.json({ id: user.id, full_name: user.full_name, role: user.role });
-});
-
 app.post('/api/auth/login', (req, res) => {
   const { login, password } = req.body || {};
   const user = login ? db.getUserByLogin(login.trim()) : null;
@@ -202,6 +169,45 @@ app.get('/api/employees', requireAuth('admin'), (req, res) => {
   res.json(db.listEmployees());
 });
 
+// Аккаунты сотрудников теперь создаёт только администратор — публичной
+// регистрации больше нет.
+app.post('/api/employees', requireAuth('admin'), (req, res) => {
+  const { full_name, login, password, positions } = req.body || {};
+
+  if (!full_name || !full_name.trim()) {
+    return res.status(400).json({ error: 'Укажите ФИО' });
+  }
+  if (!login || login.trim().length < 3) {
+    return res.status(400).json({ error: 'Логин должен быть не короче 3 символов' });
+  }
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: 'Пароль должен быть не короче 6 символов' });
+  }
+  if (db.getUserByLogin(login.trim())) {
+    return res.status(409).json({ error: 'Такой логин уже занят' });
+  }
+
+  const positionsError = validatePositions(positions);
+  if (positionsError) {
+    return res.status(400).json({ error: positionsError });
+  }
+
+  let user;
+  try {
+    user = db.createUser({
+      role: 'employee',
+      full_name: full_name.trim(),
+      login: login.trim(),
+      password,
+      positions: positions || [],
+    });
+  } catch (err) {
+    return res.status(409).json({ error: 'Такой логин уже занят' });
+  }
+
+  res.json(user);
+});
+
 app.patch('/api/employees/:id/active', requireAuth('admin'), (req, res) => {
   const id = Number(req.params.id);
   const { active } = req.body || {};
@@ -209,22 +215,39 @@ app.patch('/api/employees/:id/active', requireAuth('admin'), (req, res) => {
   res.json(db.getUserById(id));
 });
 
-// Админ задаёт график работы (время смены) и должность сотрудника —
-// сам сотрудник это больше не выбирает при регистрации.
+// Админ задаёт должности сотрудника — можно несколько (например, основная
+// должность + совмещение). Первая должность в списке считается основной:
+// по её графику определяется день/ночь для реально отработанных часов.
 const SCHEDULE_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-app.patch('/api/employees/:id/schedule', requireAuth('admin'), (req, res) => {
+function validatePositions(positions) {
+  if (positions === undefined) return null;
+  if (!Array.isArray(positions)) return 'Список должностей указан неверно';
+  for (const p of positions) {
+    if (!p || !String(p.name || '').trim()) return 'У каждой должности должно быть название';
+    if (p.work_start && !SCHEDULE_TIME_RE.test(p.work_start)) {
+      return 'Начало работы укажите в формате ЧЧ:ММ';
+    }
+    if (p.work_end && !SCHEDULE_TIME_RE.test(p.work_end)) {
+      return 'Конец работы укажите в формате ЧЧ:ММ';
+    }
+    if (p.daily_hours !== undefined && p.daily_hours !== null && p.daily_hours !== '' && Number.isNaN(Number(p.daily_hours))) {
+      return 'Часы в день должны быть числом';
+    }
+  }
+  return null;
+}
+
+app.patch('/api/employees/:id/positions', requireAuth('admin'), (req, res) => {
   const id = Number(req.params.id);
-  const { work_start, work_end, position } = req.body || {};
+  const { positions } = req.body || {};
 
-  if (work_start && !SCHEDULE_TIME_RE.test(work_start)) {
-    return res.status(400).json({ error: 'Начало работы укажите в формате ЧЧ:ММ' });
-  }
-  if (work_end && !SCHEDULE_TIME_RE.test(work_end)) {
-    return res.status(400).json({ error: 'Конец работы укажите в формате ЧЧ:ММ' });
+  const error = validatePositions(positions);
+  if (error) {
+    return res.status(400).json({ error });
   }
 
-  const user = db.updateEmployeeSchedule(id, { work_start, work_end, position });
+  const user = db.updateEmployeePositions(id, positions || []);
   if (!user) {
     return res.status(404).json({ error: 'Сотрудник не найден' });
   }
@@ -422,9 +445,9 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
   function daysInMonth(year, month0) {
     return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
   }
-  function isNightSchedule(employee) {
-    if (!employee || !employee.work_start) return false;
-    const hour = Number(String(employee.work_start).slice(0, 2));
+  function isNightSchedule(position) {
+    if (!position || !position.work_start) return false;
+    const hour = Number(String(position.work_start).slice(0, 2));
     return hour >= 18 || hour < 6;
   }
 
@@ -512,22 +535,33 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
       sheet.getColumn(startCol + 1).width = 5;
     }
 
+    let rowNum = 4;
     employees.forEach((emp, idx) => {
-      const rowNum = 4 + idx;
-      const row = sheet.getRow(rowNum);
-      row.getCell(1).value = idx + 1;
-      row.getCell(2).value = emp.full_name;
-      row.getCell(3).value = emp.position || '';
-
       const perDate = hoursByEmployeeDate.get(emp.id);
-      const night = isNightSchedule(emp);
-      for (let day = 1; day <= numDays; day++) {
-        const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const hours = perDate ? perDate.get(dateKey) : undefined;
-        if (hours === undefined) continue;
-        const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
-        row.getCell(night ? startCol + 1 : startCol).value = hours;
-      }
+      const positions = emp.positions && emp.positions.length ? emp.positions : [null];
+
+      positions.forEach((pos, posIdx) => {
+        const row = sheet.getRow(rowNum++);
+        row.getCell(1).value = idx + 1;
+        row.getCell(2).value = emp.full_name;
+        row.getCell(3).value = pos ? pos.name : '';
+
+        const night = isNightSchedule(pos);
+        for (let day = 1; day <= numDays; day++) {
+          const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          const worked = perDate ? perDate.get(dateKey) : undefined;
+          if (worked === undefined) continue; // в этот день у сотрудника не было завершённой смены
+
+          // Основная (первая) должность — реально отработанные часы по отметкам QR.
+          // Дополнительные должности (совмещение) — заданные вручную часы в день,
+          // проставляются в те же дни, когда была смена.
+          const hours = posIdx === 0 ? worked : (pos && pos.daily_hours !== null && pos.daily_hours !== undefined ? pos.daily_hours : null);
+          if (hours === null) continue;
+
+          const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
+          row.getCell(night ? startCol + 1 : startCol).value = hours;
+        }
+      });
     });
   }
 

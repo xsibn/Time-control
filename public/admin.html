@@ -22,7 +22,7 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     padding: 24px 16px 60px;
   }
-  .wrap { max-width: 900px; margin: 0 auto; }
+  .wrap { max-width: 960px; margin: 0 auto; }
   h1 { font-size: 22px; margin-bottom: 4px; }
   .sub { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
   .links-row { display: flex; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; align-items: center; }
@@ -46,6 +46,11 @@
     padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
     color: white; font-weight: 600; cursor: pointer; font-size: 13px;
   }
+  .head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .btn-add {
+    padding: 9px 16px; border-radius: 10px; border: none; background: var(--accent);
+    color: white; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
   table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 16px; overflow: hidden; }
   th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
   th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.4px; }
@@ -59,15 +64,18 @@
   .badge.active { background: rgba(52,199,123,0.15); color: #34c77b; }
   .badge.inactive { background: rgba(255,84,112,0.15); color: #ff5470; }
   .mono { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pos-list { display: flex; flex-direction: column; gap: 2px; }
+  .pos-list .pos-main { color: var(--text); }
+  .pos-list .pos-extra { color: var(--muted); font-size: 12.5px; }
 
   .overlay {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
-    align-items: center; justify-content: center; padding: 20px; z-index: 10;
+    align-items: center; justify-content: center; padding: 20px; z-index: 10; overflow-y: auto;
   }
   .overlay.open { display: flex; }
   .modal {
     background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
-    padding: 22px; width: 100%; max-width: 360px;
+    padding: 22px; width: 100%; max-width: 440px; margin: auto;
   }
   .modal h2 { font-size: 16px; margin: 0 0 16px; }
   .modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
@@ -87,6 +95,27 @@
     background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
   }
   .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+  .positions-block { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 12px; }
+  .position-card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px;
+    background: var(--bg);
+  }
+  .position-card:last-child { margin-bottom: 0; }
+  .position-card .position-head {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;
+  }
+  .position-head .tag {
+    font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .position-head .remove-pos {
+    background: none; border: none; color: #ff5470; cursor: pointer; font-size: 13px; padding: 2px 6px;
+  }
+  .add-position-btn {
+    width: 100%; margin-top: 4px; padding: 9px; border-radius: 10px; border: 1px dashed var(--border);
+    background: transparent; color: var(--accent); cursor: pointer; font-size: 13px; font-family: inherit;
+  }
+  .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -105,39 +134,67 @@
     <button type="submit">Скачать</button>
     <span class="export-label">(оставьте пустым — выгрузится весь период)</span>
   </form>
-  <h1>Сотрудники</h1>
-  <div class="sub">
-    Сотрудники регистрируются самостоятельно на странице входа. График работы и должность
-    задаёт администратор — здесь можно посмотреть список, изменить график и включить/отключить пропуск.
+
+  <div class="head-row">
+    <div>
+      <h1>Сотрудники</h1>
+      <div class="sub">
+        Аккаунты сотрудников создаёт администратор. Здесь можно добавить сотрудника, задать
+        ему одну или несколько должностей (например, при совмещении), изменить их и
+        включить/отключить пропуск.
+      </div>
+    </div>
+    <button class="btn-add" onclick="openAddModal()">+ Добавить сотрудника</button>
   </div>
 
   <table>
     <thead>
-      <tr><th>ФИО</th><th>Логин</th><th>Должность</th><th>График</th><th>Статус</th><th>Действия</th></tr>
+      <tr><th>ФИО</th><th>Логин</th><th>Должности</th><th>Статус</th><th>Действия</th></tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
 </div>
 
-<div class="overlay" id="scheduleOverlay">
+<!-- Модалка: добавление сотрудника -->
+<div class="overlay" id="addOverlay">
   <div class="modal">
-    <h2>График и должность</h2>
-    <label>Должность</label>
-    <input type="text" id="schedPosition" placeholder="Например, Кладовщик" />
+    <h2>Новый сотрудник</h2>
+    <label>ФИО</label>
+    <input type="text" id="addFullName" placeholder="Иванов Иван Иванович" />
     <div class="row">
       <div>
-        <label>Начало работы</label>
-        <input type="time" id="schedStart" />
+        <label>Логин</label>
+        <input type="text" id="addLogin" autocomplete="off" />
       </div>
       <div>
-        <label>Конец работы</label>
-        <input type="time" id="schedEnd" />
+        <label>Пароль</label>
+        <input type="password" id="addPassword" autocomplete="new-password" />
       </div>
     </div>
-    <div class="msg" id="schedMsg"></div>
+
+    <div class="positions-block" id="addPositionsBlock"></div>
+    <button class="add-position-btn" onclick="addPositionCard('add')">+ Добавить должность</button>
+    <div class="hint">Первая должность — основная: по ней считаются реально отработанные часы. Остальные — совмещение, часы для них задаются вручную.</div>
+
+    <div class="msg" id="addMsg"></div>
     <div class="modal-actions">
-      <button onclick="closeScheduleModal()">Отмена</button>
-      <button class="primary" onclick="submitSchedule()">Сохранить</button>
+      <button onclick="closeAddModal()">Отмена</button>
+      <button class="primary" onclick="submitAdd()">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: редактирование должностей -->
+<div class="overlay" id="posOverlay">
+  <div class="modal">
+    <h2 id="posModalTitle">Должности сотрудника</h2>
+    <div class="positions-block" id="editPositionsBlock"></div>
+    <button class="add-position-btn" onclick="addPositionCard('edit')">+ Добавить должность</button>
+    <div class="hint">Первая должность — основная: по ней считаются реально отработанные часы. Остальные — совмещение, часы для них задаются вручную.</div>
+    <div class="msg" id="posMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closePosModal()">Отмена</button>
+      <button class="primary" onclick="submitPositions()">Сохранить</button>
     </div>
   </div>
 </div>
@@ -158,6 +215,21 @@ async function logout() {
   location.href = '/login.html';
 }
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function formatPositions(positions) {
+  if (!positions || !positions.length) return '<span style="color:var(--muted)">—</span>';
+  return '<div class="pos-list">' + positions.map((p, i) => {
+    const sched = (p.work_start || p.work_end) ? ` <span class="mono">${escapeHtml(p.work_start || '—')}–${escapeHtml(p.work_end || '—')}</span>` : '';
+    const hours = i > 0 && p.daily_hours ? ` · ${escapeHtml(p.daily_hours)} ч/день` : '';
+    return `<div class="${i === 0 ? 'pos-main' : 'pos-extra'}">${i === 0 ? '' : '＋ '}${escapeHtml(p.name)}${sched}${hours}</div>`;
+  }).join('') + '</div>';
+}
+
 async function loadEmployees() {
   const resp = await fetch('/api/employees');
   if (resp.status === 401 || resp.status === 403) { location.href = '/login.html'; return; }
@@ -168,15 +240,14 @@ async function loadEmployees() {
     <tr>
       <td>${escapeHtml(e.full_name)}</td>
       <td class="mono">${escapeHtml(e.login)}</td>
-      <td>${escapeHtml(e.position || '—')}</td>
-      <td class="mono">${escapeHtml(e.work_start || '—')}–${escapeHtml(e.work_end || '—')}</td>
+      <td>${formatPositions(e.positions)}</td>
       <td><span class="badge ${e.active ? 'active' : 'inactive'}">${e.active ? 'Активен' : 'Отключён'}</span></td>
       <td>
-        <button class="btn-small" onclick="openScheduleModal(${e.id})">✏️ График</button>
+        <button class="btn-small" onclick="openPosModal(${e.id})">✏️ Должности</button>
         <button class="btn-small" onclick="toggleActive(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'Отключить' : 'Включить'}</button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="6" style="color:#8a94ab;">Пока нет зарегистрированных сотрудников</td></tr>';
+  `).join('') || '<tr><td colspan="5" style="color:#8a94ab;">Пока нет сотрудников — добавьте первого кнопкой выше</td></tr>';
 }
 
 async function toggleActive(id, active) {
@@ -188,44 +259,140 @@ async function toggleActive(id, active) {
   loadEmployees();
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+// --- Карточки должностей (переиспользуются в модалках добавления и редактирования) ---
+
+function positionCardHtml(scope, idx, pos) {
+  pos = pos || { name: '', work_start: '', work_end: '', daily_hours: '' };
+  const isMain = idx === 0;
+  return `
+    <div class="position-card" data-idx="${idx}">
+      <div class="position-head">
+        <span class="tag">${isMain ? 'Основная должность' : 'Доп. должность (совмещение)'}</span>
+        <button class="remove-pos" onclick="removePositionCard('${scope}', ${idx})" title="Удалить должность">✕</button>
+      </div>
+      <label>Название должности</label>
+      <input type="text" class="pos-name" placeholder="Например, Кладовщик" value="${escapeHtml(pos.name)}" />
+      <div class="row">
+        <div>
+          <label>Начало смены</label>
+          <input type="time" class="pos-start" value="${escapeHtml(pos.work_start || '')}" />
+        </div>
+        <div>
+          <label>Конец смены</label>
+          <input type="time" class="pos-end" value="${escapeHtml(pos.work_end || '')}" />
+        </div>
+      </div>
+      ${isMain ? '' : `
+      <label>Часы в день (для табеля)</label>
+      <input type="number" class="pos-hours" min="0" step="0.5" placeholder="Например, 4" value="${escapeHtml(pos.daily_hours != null ? pos.daily_hours : '')}" />
+      `}
+    </div>
+  `;
 }
 
-// --- Редактирование графика/должности ---
+function blockEl(scope) {
+  return document.getElementById(scope === 'add' ? 'addPositionsBlock' : 'editPositionsBlock');
+}
+
+function renderPositionCards(scope, positions) {
+  const block = blockEl(scope);
+  block.innerHTML = positions.map((p, i) => positionCardHtml(scope, i, p)).join('') ||
+    '<div class="hint">Должностей пока нет — добавьте хотя бы одну.</div>';
+}
+
+function readPositionCards(scope) {
+  const block = blockEl(scope);
+  const cards = Array.from(block.querySelectorAll('.position-card'));
+  return cards.map(card => ({
+    name: card.querySelector('.pos-name').value.trim(),
+    work_start: card.querySelector('.pos-start').value || null,
+    work_end: card.querySelector('.pos-end').value || null,
+    daily_hours: card.querySelector('.pos-hours') ? (card.querySelector('.pos-hours').value || null) : null,
+  })).filter(p => p.name);
+}
+
+function addPositionCard(scope) {
+  const positions = readPositionCards(scope);
+  positions.push({ name: '', work_start: '', work_end: '', daily_hours: '' });
+  renderPositionCards(scope, positions);
+}
+
+function removePositionCard(scope, idx) {
+  const positions = readPositionCards(scope);
+  positions.splice(idx, 1);
+  renderPositionCards(scope, positions);
+}
+
+// --- Добавление сотрудника ---
+
+function openAddModal() {
+  document.getElementById('addFullName').value = '';
+  document.getElementById('addLogin').value = '';
+  document.getElementById('addPassword').value = '';
+  renderPositionCards('add', [{ name: '', work_start: '', work_end: '', daily_hours: '' }]);
+  document.getElementById('addMsg').textContent = '';
+  document.getElementById('addMsg').className = 'msg';
+  document.getElementById('addOverlay').classList.add('open');
+}
+
+function closeAddModal() {
+  document.getElementById('addOverlay').classList.remove('open');
+}
+
+async function submitAdd() {
+  const msg = document.getElementById('addMsg');
+  const full_name = document.getElementById('addFullName').value.trim();
+  const login = document.getElementById('addLogin').value.trim();
+  const password = document.getElementById('addPassword').value;
+  const positions = readPositionCards('add');
+
+  const resp = await fetch('/api/employees', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name, login, password, positions }),
+  });
+  const data = await resp.json().catch(() => ({}));
+
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось создать сотрудника';
+    msg.className = 'msg error';
+    return;
+  }
+
+  msg.textContent = 'Сотрудник создан';
+  msg.className = 'msg ok';
+  setTimeout(() => { closeAddModal(); loadEmployees(); }, 500);
+}
+
+// --- Редактирование должностей ---
 
 let editingEmployeeId = null;
 
-function openScheduleModal(id) {
+function openPosModal(id) {
   const emp = currentEmployees.find(e => e.id === id);
   if (!emp) return;
   editingEmployeeId = id;
-  document.getElementById('schedPosition').value = emp.position || '';
-  document.getElementById('schedStart').value = emp.work_start || '';
-  document.getElementById('schedEnd').value = emp.work_end || '';
-  document.getElementById('schedMsg').textContent = '';
-  document.getElementById('schedMsg').className = 'msg';
-  document.getElementById('scheduleOverlay').classList.add('open');
+  document.getElementById('posModalTitle').textContent = `Должности — ${emp.full_name}`;
+  renderPositionCards('edit', (emp.positions && emp.positions.length) ? emp.positions : [{ name: '', work_start: '', work_end: '', daily_hours: '' }]);
+  document.getElementById('posMsg').textContent = '';
+  document.getElementById('posMsg').className = 'msg';
+  document.getElementById('posOverlay').classList.add('open');
 }
 
-function closeScheduleModal() {
-  document.getElementById('scheduleOverlay').classList.remove('open');
+function closePosModal() {
+  document.getElementById('posOverlay').classList.remove('open');
   editingEmployeeId = null;
 }
 
-async function submitSchedule() {
+async function submitPositions() {
   if (!editingEmployeeId) return;
-  const position = document.getElementById('schedPosition').value.trim();
-  const work_start = document.getElementById('schedStart').value;
-  const work_end = document.getElementById('schedEnd').value;
-  const msg = document.getElementById('schedMsg');
+  const msg = document.getElementById('posMsg');
+  const positions = readPositionCards('edit');
 
-  const resp = await fetch(`/api/employees/${editingEmployeeId}/schedule`, {
+  const resp = await fetch(`/api/employees/${editingEmployeeId}/positions`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ position, work_start, work_end }),
+    body: JSON.stringify({ positions }),
   });
   const data = await resp.json().catch(() => ({}));
 
@@ -237,7 +404,7 @@ async function submitSchedule() {
 
   msg.textContent = 'Сохранено';
   msg.className = 'msg ok';
-  setTimeout(() => { closeScheduleModal(); loadEmployees(); }, 600);
+  setTimeout(() => { closePosModal(); loadEmployees(); }, 500);
 }
 
 (async () => {

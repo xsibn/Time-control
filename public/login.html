@@ -45,11 +45,6 @@
 <body>
   <div class="box">
     <h1>УЧЁТ РАБОЧЕГО ВРЕМЕНИ</h1>
-    <div class="tabs">
-      <button id="tabLogin" class="active" onclick="switchTab('login')">Вход</button>
-      <button id="tabRegister" onclick="switchTab('register')">Регистрация</button>
-    </div>
-
     <form id="loginForm" class="active">
       <div>
         <label>Логин</label>
@@ -63,33 +58,9 @@
       <div class="error" id="loginError"></div>
     </form>
 
-    <form id="registerForm">
-      <div>
-        <label>ФИО</label>
-        <input type="text" id="regFullName" required />
-      </div>
-      <div>
-        <label>Логин</label>
-        <input type="text" id="regLogin" autocomplete="username" required />
-      </div>
-      <div>
-        <label>Пароль</label>
-        <input type="password" id="regPassword" autocomplete="new-password" required minlength="6" />
-      </div>
-      <button class="submit" type="submit">Зарегистрироваться</button>
-      <div class="error" id="registerError"></div>
-    </form>
-
   </div>
 
 <script>
-function switchTab(which) {
-  document.getElementById('tabLogin').classList.toggle('active', which === 'login');
-  document.getElementById('tabRegister').classList.toggle('active', which === 'register');
-  document.getElementById('loginForm').classList.toggle('active', which === 'login');
-  document.getElementById('registerForm').classList.toggle('active', which === 'register');
-}
-
 function redirectByRole(role) {
   if (role === 'guard') { location.href = '/guard.html'; return; }
   if (role === 'admin') { location.href = '/admin.html'; return; }
@@ -110,24 +81,6 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   });
   const data = await resp.json();
   if (!resp.ok) { errEl.textContent = data.error || 'Ошибка входа'; return; }
-  redirectByRole(data.role);
-});
-
-document.getElementById('registerForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const errEl = document.getElementById('registerError');
-  errEl.textContent = '';
-  const resp = await fetch('/api/auth/register', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      full_name: document.getElementById('regFullName').value.trim(),
-      login: document.getElementById('regLogin').value.trim(),
-      password: document.getElementById('regPassword').value,
-    }),
-  });
-  const data = await resp.json();
-  if (!resp.ok) { errEl.textContent = data.error || 'Ошибка регистрации'; return; }
   redirectByRole(data.role);
 });
 

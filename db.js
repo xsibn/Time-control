@@ -81,7 +81,27 @@ function verifyPassword(password, salt, expectedHash) {
 
 // --- Пользователи ---
 
-function createUser({ role, full_name, login, password, work_start = null, work_end = null, position = '' }) {
+// positions — массив должностей сотрудника: [{ name, work_start, work_end, daily_hours }]
+// Первая должность в списке — основная: именно по её графику (день/ночь) и
+// реально отработанному времени (по отметкам QR) формируется табель.
+// Остальные должности — дополнительные (совмещение): в табеле для них
+// проставляются фиксированные часы (daily_hours) в те дни, когда у сотрудника
+// была отработанная смена.
+function normalizePositions(positions) {
+  if (!Array.isArray(positions)) return [];
+  return positions
+    .filter(p => p && String(p.name || '').trim())
+    .map(p => ({
+      name: String(p.name).trim(),
+      work_start: p.work_start || null,
+      work_end: p.work_end || null,
+      daily_hours: p.daily_hours !== undefined && p.daily_hours !== null && p.daily_hours !== ''
+        ? Number(p.daily_hours)
+        : null,
+    }));
+}
+
+function createUser({ role, full_name, login, password, positions = [] }) {
   if (state.users.some(u => u.login === login)) {
     const err = new Error('Такой логин уже занят');
     err.code = 'DUPLICATE_LOGIN';
@@ -95,9 +115,7 @@ function createUser({ role, full_name, login, password, work_start = null, work_
     login,
     password_hash: hash,
     password_salt: salt,
-    work_start,
-    work_end,
-    position,
+    positions: normalizePositions(positions),
     active: 1,
     last_window: 0,
     created_at: nowIso(),
@@ -128,16 +146,21 @@ function listEmployees() {
     .sort((a, b) => b.id - a.id);
 }
 
-// Админ задаёт график (время смены) и должность сотрудника — сам сотрудник
-// это больше не выбирает при регистрации.
-function updateEmployeeSchedule(id, { work_start, work_end, position }) {
+// Админ задаёт должности сотрудника (можно несколько — совмещение) и график
+// каждой из них. Сам сотрудник это не выбирает — аккаунты и должности
+// целиком в ведении администратора.
+function updateEmployeePositions(id, positions) {
   const user = state.users.find(u => u.id === Number(id) && u.role === 'employee');
   if (!user) return null;
-  if (work_start !== undefined) user.work_start = work_start || null;
-  if (work_end !== undefined) user.work_end = work_end || null;
-  if (position !== undefined) user.position = position || '';
+  user.positions = normalizePositions(positions);
   persist();
   return user;
+}
+
+// Основная должность сотрудника (первая в списке) — по ней считается
+// реально отработанное время в табеле.
+function primaryPosition(user) {
+  return user && Array.isArray(user.positions) && user.positions[0] ? user.positions[0] : null;
 }
 
 function setEmployeeActive(id, active) {
@@ -184,11 +207,12 @@ function listLogs(limit = 200) {
     .slice(0, limit)
     .map(l => {
       const user = getUserById(l.employee_id);
+      const pos = primaryPosition(user);
       return {
         ...l,
         full_name: user ? user.full_name : '—',
-        work_start: user ? user.work_start : null,
-        work_end: user ? user.work_end : null,
+        work_start: pos ? pos.work_start : null,
+        work_end: pos ? pos.work_end : null,
       };
     });
 }
@@ -208,12 +232,13 @@ function listAllLogsForExport(from = null, to = null) {
     .sort((a, b) => a.id - b.id)
     .map(l => {
       const user = getUserById(l.employee_id);
+      const pos = primaryPosition(user);
       return {
         ...l,
         full_name: user ? user.full_name : '—',
         login: user ? user.login : '—',
-        work_start: user ? user.work_start : null,
-        work_end: user ? user.work_end : null,
+        work_start: pos ? pos.work_start : null,
+        work_end: pos ? pos.work_end : null,
       };
     });
 }
@@ -291,7 +316,8 @@ module.exports = {
   updateUserPassword,
   listEmployees,
   setEmployeeActive,
-  updateEmployeeSchedule,
+  updateEmployeePositions,
+  primaryPosition,
   tryConsumeWindow,
   getLastLogForEmployee,
   addLog,

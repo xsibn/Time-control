@@ -492,93 +492,214 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
 
   const employees = db.listEmployees().slice().sort((a, b) => a.id - b.id);
 
+  // Т-12: № п/п | Фамилия, инициалы, должность | Табельный номер | дни 1..31
+  // (код явки сверху, часы снизу) с разбивкой на I и II половину месяца
+  // с промежуточными итогами | Итого отработано за месяц (дней, часов
+  // всего, из них: сверхурочных/ночных/выходных,празднич., неявки,
+  // из них по причинам: код/количество, кол-во выходных и празд. дней).
   for (const monthKey of Array.from(monthKeys).sort()) {
     const [year, month1] = monthKey.split('-').map(Number);
     const month0 = month1 - 1;
     const numDays = daysInMonth(year, month0);
+    const half1Days = Math.min(15, numDays);
     const sheetName = `${RU_MONTHS[month0]} ${String(year).slice(2)}`;
     const sheet = workbook.addWorksheet(sheetName.slice(0, 31));
 
-    const FIXED_COLS = 3; // №, ФИО, Должность
-    const COLS_PER_DAY = 2; // д, н
+    const FIXED_COLS = 3; // №, Фамилия/должность, Табельный номер
+    const dayCol = (day) => day <= half1Days
+      ? FIXED_COLS + day
+      : FIXED_COLS + half1Days + 1 + (day - half1Days);
+    const itog1Col = FIXED_COLS + half1Days + 1;
+    const itog2Col = FIXED_COLS + half1Days + 1 + (numDays - half1Days) + 1;
+    const COL_DAYS = itog2Col + 1;       // 8: дней
+    const COL_HOURS = itog2Col + 2;      // 9: часов, всего
+    const COL_OVERTIME = itog2Col + 3;   // 10: из них сверхурочных
+    const COL_NIGHT = itog2Col + 4;      // 11: из них ночных
+    const COL_WEEKEND_H = itog2Col + 5;  // 12: из них выходных, празднич.
+    const COL_ABSENCE = itog2Col + 6;    // 14: неявки, дней (часов)
+    const COL_REASON_CODE = itog2Col + 7;  // 15: из них по причинам — код
+    const COL_REASON_QTY = itog2Col + 8;   // 16: из них по причинам — кол-во
+    const COL_WEEKEND_D = itog2Col + 9;  // 17: кол-во выходных и празд. дней
+    const LAST_COL = COL_WEEKEND_D;
 
-    // Заголовки: число месяца (объединено на д/н), день недели (объединено), затем подписи д/н
+    // --- Заголовок (3 строки) ---
     sheet.mergeCells(1, 1, 3, 1);
-    sheet.getCell(1, 1).value = '№';
+    sheet.getCell(1, 1).value = '№\nп/п';
     sheet.mergeCells(1, 2, 3, 2);
-    sheet.getCell(1, 2).value = 'Ф.И.О';
+    sheet.getCell(1, 2).value = 'Фамилия, инициалы, должность';
     sheet.mergeCells(1, 3, 3, 3);
-    sheet.getCell(1, 3).value = 'Должность';
+    sheet.getCell(1, 3).value = 'Табельный номер';
+
+    sheet.mergeCells(1, FIXED_COLS + 1, 1, itog2Col);
+    sheet.getCell(1, FIXED_COLS + 1).value = 'Отметки о явках и неявках на работу по числам месяца';
+
+    sheet.mergeCells(1, COL_DAYS, 1, LAST_COL);
+    sheet.getCell(1, COL_DAYS).value = 'Итого отработано за месяц';
 
     for (let day = 1; day <= numDays; day++) {
-      const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
-      const dateObj = new Date(Date.UTC(year, month0, day));
-      sheet.mergeCells(1, startCol, 1, startCol + 1);
-      sheet.getCell(1, startCol).value = day;
-      sheet.getCell(1, startCol).alignment = { horizontal: 'center' };
-      sheet.mergeCells(2, startCol, 2, startCol + 1);
-      sheet.getCell(2, startCol).value = RU_WEEKDAYS[dateObj.getUTCDay()];
-      sheet.getCell(2, startCol).alignment = { horizontal: 'center' };
-      sheet.getCell(3, startCol).value = 'д';
-      sheet.getCell(3, startCol + 1).value = 'н';
+      const col = dayCol(day);
+      sheet.mergeCells(2, col, 3, col);
+      sheet.getCell(2, col).value = day;
+      sheet.getCell(2, col).alignment = { horizontal: 'center' };
     }
-    sheet.getRow(1).font = { bold: true };
-    sheet.getRow(2).font = { bold: true, color: { argb: 'FF8A94AB' } };
-    sheet.getRow(3).font = { bold: true };
+    sheet.mergeCells(2, itog1Col, 3, itog1Col);
+    sheet.getCell(2, itog1Col).value = 'итого отработано за I половину месяца';
+    sheet.mergeCells(2, itog2Col, 3, itog2Col);
+    sheet.getCell(2, itog2Col).value = 'итого отработано за II половину месяца';
+
+    const rightHeaders = [
+      [COL_DAYS, 'дней'],
+      [COL_HOURS, 'часов, всего'],
+      [COL_OVERTIME, 'из них сверхурочных'],
+      [COL_NIGHT, 'из них ночных'],
+      [COL_WEEKEND_H, 'из них выходных, празднич.'],
+      [COL_ABSENCE, 'количество неявок, дней (часов)'],
+      [COL_REASON_CODE, 'из них по причинам: код'],
+      [COL_REASON_QTY, 'из них по причинам: количество'],
+      [COL_WEEKEND_D, 'количество выходных и празднич. дней'],
+    ];
+    for (const [col, label] of rightHeaders) {
+      sheet.mergeCells(2, col, 3, col);
+      const cell = sheet.getCell(2, col);
+      cell.value = label;
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    }
+
+    for (let r = 1; r <= 3; r++) sheet.getRow(r).font = { bold: true };
+    sheet.getRow(2).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    sheet.getRow(3).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
     sheet.getColumn(1).width = 5;
-    sheet.getColumn(2).width = 30;
-    sheet.getColumn(3).width = 26;
-    for (let day = 1; day <= numDays; day++) {
-      const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
-      sheet.getColumn(startCol).width = 5;
-      sheet.getColumn(startCol + 1).width = 5;
+    sheet.getColumn(2).width = 32;
+    sheet.getColumn(3).width = 14;
+    for (let day = 1; day <= numDays; day++) sheet.getColumn(dayCol(day)).width = 4;
+    sheet.getColumn(itog1Col).width = 9;
+    sheet.getColumn(itog2Col).width = 9;
+    for (const [col] of rightHeaders) sheet.getColumn(col).width = 9;
+
+    // Порог, с которого превышение нормы должности считается переработкой
+    // и уходит на следующую (доп.) должность, а не остаётся на первой.
+    const OVERTIME_THRESHOLD_HOURS = 1;
+
+    // Разносит фактически отработанные часы по должностям сотрудника:
+    // сначала каждая должность получает часы в пределах своей дневной
+    // нормы (daily_hours); если сверх нормы сотрудник задержался на час
+    // и более — излишек ("переработка") передаётся следующей по порядку
+    // должности (а не просто прибавляется к первой). Если следующей
+    // должности нет, переработка остаётся на текущей.
+    function allocateHoursAcrossPositions(worked, positions) {
+      const alloc = new Array(positions.length).fill(0);
+      let remaining = worked;
+      for (let i = 0; i < positions.length; i++) {
+        if (remaining <= 0) break;
+        const pos = positions[i];
+        const hasCap = pos && pos.daily_hours !== null && pos.daily_hours !== undefined && pos.daily_hours !== '';
+        const cap = hasCap ? Number(pos.daily_hours) : Infinity;
+        const isLast = i === positions.length - 1;
+        if (!hasCap || isLast) {
+          // Нет нормы или это последняя доступная должность — забирает всё, что осталось.
+          alloc[i] = remaining;
+          remaining = 0;
+        } else if (remaining - cap >= OVERTIME_THRESHOLD_HOURS) {
+          // Переработка от часа и больше — уходит на следующую должность.
+          alloc[i] = cap;
+          remaining -= cap;
+        } else {
+          // Небольшая (<1ч) задержка сверх нормы остаётся на этой же должности.
+          alloc[i] = remaining;
+          remaining = 0;
+        }
+      }
+      return alloc;
     }
 
+    // --- Данные ---
     let rowNum = 4;
     employees.forEach((emp, idx) => {
       const perDate = hoursByEmployeeDate.get(emp.id);
       const positions = emp.positions && emp.positions.length ? emp.positions : [null];
 
-      // Для каждого дня считаем, сколько реально отработанных часов приходится
-      // на каждую должность: разносим фактическое время по порядку должностей
-      // (сначала основная, потом совмещаемые), не больше нормы (daily_hours)
-      // на должность. Если сотрудник ушёл раньше — следующим должностям
-      // достанется меньше часов или 0, а не фиксированное число "для галочки".
-      const allocByDay = new Map(); // dateKey -> [hours per position index]
+      // По каждому дню считаем распределение часов по должностям.
+      const allocByDay = new Map(); // day -> [hours per position]
       for (let day = 1; day <= numDays; day++) {
         const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const worked = perDate ? perDate.get(dateKey) : undefined;
         if (worked === undefined) continue;
-        let remaining = worked;
-        const alloc = positions.map(pos => {
-          const hasCap = pos && pos.daily_hours !== null && pos.daily_hours !== undefined && pos.daily_hours !== '';
-          const cap = hasCap ? Number(pos.daily_hours) : Infinity;
-          const allocated = Math.max(0, Math.min(remaining, cap));
-          remaining -= allocated;
-          return allocated;
-        });
-        allocByDay.set(dateKey, alloc);
+        allocByDay.set(day, allocateHoursAcrossPositions(worked, positions));
       }
 
       positions.forEach((pos, posIdx) => {
-        const row = sheet.getRow(rowNum++);
-        row.getCell(1).value = idx + 1;
-        row.getCell(2).value = emp.full_name;
-        row.getCell(3).value = pos ? pos.name : '';
-
         const night = isNightSchedule(pos);
-        for (let day = 1; day <= numDays; day++) {
-          const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const alloc = allocByDay.get(dateKey);
-          if (!alloc) continue; // в этот день у сотрудника не было завершённой смены
+        const dayCode = new Array(numDays + 1).fill('');
+        const dayHours = new Array(numDays + 1).fill(null);
+        let monthDaysWorked = 0, monthHours = 0, weekendDays = 0;
 
-          const hours = alloc[posIdx];
-          const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
-          row.getCell(night ? startCol + 1 : startCol).value = hours;
+        for (let day = 1; day <= numDays; day++) {
+          const dateObj = new Date(Date.UTC(year, month0, day));
+          const isWeekend = dateObj.getUTCDay() === 0 || dateObj.getUTCDay() === 6;
+          const alloc = allocByDay.get(day);
+          const hours = alloc ? alloc[posIdx] : undefined;
+          if (hours) {
+            dayCode[day] = 'Я';
+            dayHours[day] = hours;
+            monthDaysWorked++;
+            monthHours += hours;
+          } else if (isWeekend && posIdx === 0) {
+            dayCode[day] = 'В';
+            weekendDays++;
+          }
         }
+
+        const codeRow = sheet.getRow(rowNum);
+        const hoursRow = sheet.getRow(rowNum + 1);
+
+        sheet.mergeCells(rowNum, 1, rowNum + 1, 1);
+        sheet.getCell(rowNum, 1).value = posIdx === 0 ? idx + 1 : null;
+        sheet.mergeCells(rowNum, 2, rowNum + 1, 2);
+        const posLabel = pos ? pos.name : '';
+        sheet.getCell(rowNum, 2).value = posLabel ? `${emp.full_name}, ${posLabel}` : emp.full_name;
+        sheet.mergeCells(rowNum, 3, rowNum + 1, 3);
+        sheet.getCell(rowNum, 3).value = String(emp.id).padStart(6, '0');
+
+        let half1Worked = 0, half1Hours = 0, half2Worked = 0, half2Hours = 0;
+        for (let day = 1; day <= numDays; day++) {
+          const col = dayCol(day);
+          codeRow.getCell(col).value = dayCode[day] || null;
+          hoursRow.getCell(col).value = dayHours[day];
+          codeRow.getCell(col).alignment = { horizontal: 'center' };
+          hoursRow.getCell(col).alignment = { horizontal: 'center' };
+          if (day <= half1Days) {
+            if (dayCode[day] === 'Я') { half1Worked++; half1Hours += dayHours[day]; }
+          } else {
+            if (dayCode[day] === 'Я') { half2Worked++; half2Hours += dayHours[day]; }
+          }
+        }
+        codeRow.getCell(itog1Col).value = half1Worked || null;
+        hoursRow.getCell(itog1Col).value = half1Hours || null;
+        codeRow.getCell(itog2Col).value = half2Worked || null;
+        hoursRow.getCell(itog2Col).value = half2Hours || null;
+
+        const setMerged = (col, value) => {
+          sheet.mergeCells(rowNum, col, rowNum + 1, col);
+          const cell = sheet.getCell(rowNum, col);
+          cell.value = value;
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        };
+        setMerged(COL_DAYS, monthDaysWorked || null);
+        setMerged(COL_HOURS, monthHours || null);
+        setMerged(COL_OVERTIME, posIdx > 0 ? (monthHours || null) : null);
+        setMerged(COL_NIGHT, night ? (monthHours || null) : null);
+        setMerged(COL_WEEKEND_H, null);
+        setMerged(COL_ABSENCE, null);
+        setMerged(COL_REASON_CODE, null);
+        setMerged(COL_REASON_QTY, null);
+        setMerged(COL_WEEKEND_D, posIdx === 0 ? (weekendDays || null) : null);
+
+        rowNum += 2;
       });
     });
+
+    sheet.views = [{ state: 'frozen', xSplit: FIXED_COLS, ySplit: 3 }];
   }
 
   // Лист "Смены" — приход/уход, сведённые в пары

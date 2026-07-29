@@ -161,11 +161,12 @@
   </div>
   <h1>Журнал прихода / ухода</h1>
 
-  <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank">
+  <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank" onsubmit="document.getElementById('exportCacheBust').value = Date.now();">
     <span class="export-label">📊 Экспорт в Excel за период:</span>
     <input type="date" name="from" />
     <span class="export-dash">—</span>
     <input type="date" name="to" />
+    <input type="hidden" name="_" id="exportCacheBust" value="" />
     <button type="submit">Скачать</button>
     <span class="export-label">(оставьте пустым — весь период)</span>
   </form>

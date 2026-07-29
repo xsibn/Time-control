@@ -953,6 +953,12 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
   const filename = `time-tracker${rangeSuffix}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  // Экспорт формируется заново на каждый запрос из актуальных данных — без
+  // этого браузер иногда отдаёт из своего кэша ранее скачанный файл вместо
+  // повторного запроса (тот же URL/метод GET), и админ видит устаревший табель.
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   await workbook.xlsx.write(res);
   res.end();
 });

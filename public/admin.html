@@ -179,9 +179,10 @@
     <button onclick="logout()">🚪 Выйти</button>
   </div>
 
-  <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank">
+  <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank" onsubmit="document.getElementById('exportCacheBust').value = Date.now();">
     <span class="export-label">📊 Экспорт в Excel за месяц:</span>
     <input type="month" name="month" id="exportMonth" />
+    <input type="hidden" name="_" id="exportCacheBust" value="" />
     <button type="submit">Скачать</button>
     <span class="export-label">(оставьте пустым — выгрузится весь период)</span>
   </form>

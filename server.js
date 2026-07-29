@@ -215,6 +215,17 @@ app.patch('/api/employees/:id/active', requireAuth('admin'), (req, res) => {
   res.json(db.getUserById(id));
 });
 
+// Полное удаление сотрудника. Прошлые отметки прихода/ухода и коды табеля
+// не удаляются — остаются как исторические записи журнала/экспорта.
+app.delete('/api/employees/:id', requireAuth('admin'), (req, res) => {
+  const id = Number(req.params.id);
+  const removed = db.deleteEmployee(id);
+  if (!removed) {
+    return res.status(404).json({ error: 'Сотрудник не найден' });
+  }
+  res.json({ ok: true });
+});
+
 // Админ задаёт должности сотрудника — можно несколько (например, основная
 // должность + совмещение). Первая должность в списке считается основной:
 // по её графику определяется день/ночь для реально отработанных часов.

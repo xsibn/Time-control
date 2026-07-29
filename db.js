@@ -175,6 +175,18 @@ function setEmployeeActive(id, active) {
   }
 }
 
+// Полное удаление сотрудника. Отметки прихода/ухода и коды табеля за
+// прошлые периоды не трогаем — они остаются историческими записями (в
+// журнале и экспорте сотрудник просто перестаёт числиться в списке
+// активных, но его прошлые смены никуда не пропадают).
+function deleteEmployee(id) {
+  const idx = state.users.findIndex(u => u.id === Number(id) && u.role === 'employee');
+  if (idx === -1) return false;
+  state.users.splice(idx, 1);
+  persist();
+  return true;
+}
+
 // Атомарно (в рамках однопроцессного Node) проверяет, что окно новее
 // последнего использованного, и сразу фиксирует его — защита от повторного
 // использования одного и того же QR.
@@ -380,6 +392,7 @@ module.exports = {
   updateUserPassword,
   listEmployees,
   setEmployeeActive,
+  deleteEmployee,
   updateEmployeePositions,
   primaryPosition,
   tryConsumeWindow,

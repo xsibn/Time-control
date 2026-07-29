@@ -72,6 +72,8 @@
     background: transparent; color: var(--text); font-size: 13px; cursor: pointer;
   }
   .btn-small:hover { border-color: var(--accent); }
+  .btn-small.btn-danger { color: #ff5470; border-color: rgba(255,84,112,0.4); }
+  .btn-small.btn-danger:hover { border-color: #ff5470; background: rgba(255,84,112,0.08); }
   .badge { padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
   .badge.active { background: rgba(52,199,123,0.15); color: #34c77b; }
   .badge.inactive { background: rgba(255,84,112,0.15); color: #ff5470; }
@@ -364,6 +366,7 @@ function renderEmployeeRows() {
         <button class="btn-small" onclick="openPosModal(${e.id})">✏️ Должности</button>
         <button class="btn-small" onclick="openCodesModal(${e.id})">📅 Коды табеля</button>
         <button class="btn-small" onclick="toggleActive(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'Отключить' : 'Включить'}</button>
+        <button class="btn-small btn-danger" onclick="deleteEmployee(${e.id}, '${escapeHtml(e.full_name).replace(/'/g, "\\'")}')">🗑 Удалить</button>
       </td>
     </tr>
   `).join('') || (query
@@ -377,6 +380,18 @@ async function toggleActive(id, active) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ active: !!active }),
   });
+  loadEmployees();
+}
+
+async function deleteEmployee(id, fullName) {
+  if (!confirm(`Удалить сотрудника «${fullName}» без возможности восстановления? Прошлые отметки и коды табеля останутся в журнале и экспорте, но сам аккаунт и доступ к пропуску будут удалены.`)) return;
+
+  const resp = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    alert(data.error || 'Не удалось удалить сотрудника');
+    return;
+  }
   loadEmployees();
 }
 

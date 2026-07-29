@@ -5,32 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Журнал — приход/уход</title>
 <link rel="manifest" href="/manifest.json" />
-<meta name="theme-color" content="#0f1420" />
+<meta name="theme-color" content="#0c0f16" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Учёт времени" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/css/theme.css" />
 <style>
-  :root {
-    --bg: #0f1420; --panel: #161d2e; --accent: #4f8cff;
-    --green: #34c77b; --red: #ff5470; --text: #eef1f8; --muted: #8a94ab; --border: #262f45;
-  }
-  * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    padding: 24px 16px 60px;
+    margin: 0;
+    padding: 0 0 60px;
   }
-  .wrap { max-width: 900px; margin: 0 auto; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 16px; }
   h1 { font-size: 22px; margin-bottom: 4px; }
   .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
-  .links-row { display: flex; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; align-items: center; }
-  .links-row a, .links-row button {
-    color: var(--accent); font-size: 13px; text-decoration: none;
-    border: 1px solid var(--border); padding: 8px 14px; border-radius: 10px;
-    background: transparent; cursor: pointer; font-family: inherit;
-  }
   .employee-search {
     width: 100%;
     box-sizing: border-box;
@@ -49,7 +40,7 @@
     color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.4px; margin: 18px 0 8px;
   }
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 16px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
   th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
   th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
   tr:last-child td { border-bottom: none; }
@@ -66,12 +57,12 @@
   .export-label { font-size: 13px; color: var(--muted); }
   .export-dash { color: var(--muted); }
   .export-row input[type="date"] {
-    background: #0f1420; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
     color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit;
   }
   .export-row button {
     padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
-    color: white; font-weight: 600; cursor: pointer; font-size: 13px;
+    color: var(--accent-ink); font-weight: 600; cursor: pointer; font-size: 13px;
   }
   .add-row {
     display: flex; justify-content: flex-end; margin: 0 0 4px;
@@ -111,7 +102,7 @@
     flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
     background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
   }
-  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .modal-actions button.danger { background: var(--red); border-color: var(--red); color: #fff; }
 
   .marks-modal { max-width: 640px; }
@@ -153,12 +144,18 @@
 </style>
 </head>
 <body>
+<header class="app-header">
+  <a class="brand" href="/index.html">
+    <div class="mark">УВ</div>
+    <div><div class="name">Учёт времени</div><div class="who">журнал смен</div></div>
+  </a>
+  <nav class="app-nav">
+    <a href="/admin.html">👤 Сотрудники</a>
+    <a href="/logs.html" class="current">📋 Журнал</a>
+    <button class="logout-btn" onclick="logout()">Выйти</button>
+  </nav>
+</header>
 <div class="wrap">
-  <div class="links-row">
-    <a href="/index.html">← Назад</a>
-    <a href="/admin.html">👥 К сотрудникам</a>
-    <button onclick="logout()">🚪 Выйти</button>
-  </div>
   <h1>Журнал прихода / ухода</h1>
 
   <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank" onsubmit="document.getElementById('exportCacheBust').value = Date.now();">

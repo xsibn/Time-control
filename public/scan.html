@@ -5,32 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Моя отметка — приход/уход</title>
 <link rel="manifest" href="/manifest.json" />
-<meta name="theme-color" content="#0f1420" />
+<meta name="theme-color" content="#0c0f16" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Учёт времени" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/css/theme.css" />
 <style>
-  :root {
-    --bg: #0f1420; --panel: #161d2e; --accent: #4f8cff;
-    --green: #34c77b; --red: #ff5470; --text: #eef1f8; --muted: #8a94ab; --border: #262f45;
-  }
-  * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    display: flex; flex-direction: column; align-items: center; padding: 24px 16px 40px;
+    margin: 0; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; padding: 0 16px 40px;
   }
-  .topbar { width: 100%; max-width: 380px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; }
-  .topbar .name { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .topbar a, .topbar button {
-    background: transparent; border: 1px solid var(--border); color: var(--muted);
-    padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;
-    text-decoration: none; font-family: inherit; flex-shrink: 0;
-  }
-  h1 { font-size: 18px; font-weight: 600; margin: 6px 0 4px; text-align: center; }
+  h1 { font-size: 17px; font-weight: 700; margin: 14px 0 4px; text-align: center; }
   .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; text-align: center; }
   #reader {
     width: 100%; max-width: 380px; border-radius: 20px; overflow: hidden;
@@ -68,12 +58,18 @@
     if (user.role !== 'employee') { location.href = '/login.html'; return; }
 
     app.innerHTML = `
-      <div class="topbar">
-        <a href="/index.html">← Назад</a>
-        <div class="name">${escapeHtml(user.full_name)}</div>
-        <button onclick="logout()">Выйти</button>
-      </div>
-      <h1>ОТСКАНИРУЙТЕ QR НА ПОСТУ ОХРАНЫ</h1>
+      <header class="app-header" style="width:100%;max-width:380px;margin-bottom:8px;">
+        <a class="brand" href="/index.html">
+          <div class="mark">УВ</div>
+          <div>
+            <div class="name">Моя отметка</div>
+            <div class="who">${escapeHtml(user.full_name)}</div>
+          </div>
+        </a>
+        <nav class="app-nav"><button class="logout-btn" onclick="logout()">Выйти</button></nav>
+      </header>
+      <div class="eyebrow"><span class="dot"></span>Камера активна</div>
+      <h1>Отсканируйте QR на посту охраны</h1>
       <div class="sub">Код меняется каждую минуту — наведите камеру на экран охранника</div>
       <div id="reader"></div>
       <div id="result"><div class="hint">Наведите камеру на QR-код</div></div>

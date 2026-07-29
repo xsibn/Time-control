@@ -5,22 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Учёт рабочего времени</title>
 <link rel="manifest" href="/manifest.json" />
-<meta name="theme-color" content="#0f1420" />
+<meta name="theme-color" content="#0c0f16" />
 <link rel="icon" href="/icons/icon-192.png" type="image/png" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Учёт времени" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/css/theme.css" />
 <style>
-  :root { --bg:#0f1420; --panel:#161d2e; --accent:#4f8cff; --text:#eef1f8; --muted:#8a94ab; --border:#262f45; }
-  * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;
+    margin: 0; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 20px;
   }
-  h1 { font-size: 20px; margin-bottom: 6px; text-align: center; color: var(--muted); font-weight: 600; }
-  .who { font-size: 13px; color: var(--muted); margin-bottom: 22px; text-align: center; }
+  .top-mark { display: flex; flex-direction: column; align-items: center; margin-bottom: 26px; }
+  .top-mark .mark {
+    width: 44px; height: 44px; border-radius: 12px; margin-bottom: 14px;
+    background: linear-gradient(155deg, var(--accent-strong), var(--accent));
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-weight: 700; font-size: 18px; color: var(--accent-ink);
+  }
+  h1 {
+    font-size: 15px; margin: 0 0 6px; text-align: center; color: var(--text); font-weight: 700;
+    letter-spacing: 0.16em; text-transform: uppercase;
+  }
+  .who { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-bottom: 0; text-align: center; }
   .cards { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 340px; }
   a.card, button.card {
     display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
@@ -51,7 +61,7 @@
     flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border);
     background: transparent; color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px;
   }
-  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 
   .install-hint {
     width: 100%; max-width: 340px; background: var(--panel); border: 1px solid var(--border);
@@ -69,13 +79,16 @@
   .install-hint button {
     font-family: inherit; font-size: 12px; padding: 7px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap;
   }
-  .install-hint .btn-install { border: none; background: var(--accent); color: #fff; font-weight: 600; }
+  .install-hint .btn-install { border: none; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .install-hint .btn-dismiss { border: 1px solid var(--border); background: transparent; color: var(--muted); }
 </style>
 </head>
 <body>
-  <h1>УЧЁТ РАБОЧЕГО ВРЕМЕНИ</h1>
-  <div class="who" id="who"></div>
+  <div class="top-mark">
+    <div class="mark">УВ</div>
+    <h1>Учёт рабочего времени</h1>
+    <div class="who" id="who"></div>
+  </div>
 
   <div class="install-hint" id="installHint">
     <img class="icon" src="/icons/icon-192.png" alt="" />
@@ -113,10 +126,12 @@ async function init() {
 
   if (!resp.ok) {
     who.textContent = 'Вы не авторизованы';
+    cards.className = 'badge-grid';
     cards.innerHTML = `
-      <a class="card" href="/login.html">
-        <div class="t">🔑 Войти / зарегистрироваться</div>
-        <div class="d">Вход для охраны или регистрация сотрудника</div>
+      <a class="badge-card tone-amber" href="/login.html">
+        <div class="tab"></div><div class="glyph">🔑</div>
+        <div class="body"><div class="t">Войти / зарегистрироваться</div>
+        <div class="d">Вход для охраны или регистрация сотрудника</div></div>
       </a>`;
     return;
   }
@@ -125,46 +140,57 @@ async function init() {
   const roleLabel = { guard: 'охрана', admin: 'администратор', employee: 'сотрудник' }[user.role] || user.role;
   who.textContent = `${user.full_name} · ${roleLabel}`;
 
+  cards.className = 'badge-grid';
   if (user.role === 'guard') {
     cards.innerHTML = `
-      <a class="card" href="/guard.html">
-        <div class="t">🛡️ Экран охранника</div>
-        <div class="d">Показывает QR-код, обновляется каждую минуту</div>
+      <a class="badge-card tone-amber" href="/guard.html">
+        <div class="tab"></div><div class="glyph">🛡️</div>
+        <div class="body"><div class="t">Экран охранника</div>
+        <div class="d">Показывает QR-код, обновляется каждую минуту</div></div>
       </a>
-      <button class="card" onclick="logout()">
-        <div class="t">🚪 Выйти</div>
+      <button class="badge-card tone-red" onclick="logout()">
+        <div class="tab"></div><div class="glyph">🚪</div>
+        <div class="body"><div class="t">Выйти</div></div>
       </button>`;
   } else if (user.role === 'admin') {
     cards.innerHTML = `
-      <a class="card" href="/admin.html">
-        <div class="t">👤 Сотрудники</div>
-        <div class="d">Список зарегистрированных сотрудников</div>
+      <a class="badge-card tone-amber" href="/admin.html">
+        <div class="tab"></div><div class="glyph">👤</div>
+        <div class="body"><div class="t">Сотрудники</div>
+        <div class="d">Список зарегистрированных сотрудников</div></div>
       </a>
-      <a class="card" href="/logs.html">
-        <div class="t">📋 Журнал</div>
-        <div class="d">Приход, уход и отработанное время по сменам</div>
+      <a class="badge-card tone-amber" href="/logs.html">
+        <div class="tab"></div><div class="glyph">📋</div>
+        <div class="body"><div class="t">Журнал</div>
+        <div class="d">Приход, уход и отработанное время по сменам</div></div>
       </a>
-      <a class="card" href="/admin.html">
-        <div class="t">📊 Экспорт в Excel</div>
-        <div class="d">Выбрать период и скачать таблицу</div>
+      <a class="badge-card tone-green" href="/admin.html">
+        <div class="tab"></div><div class="glyph">📊</div>
+        <div class="body"><div class="t">Экспорт в Excel</div>
+        <div class="d">Выбрать период и скачать таблицу</div></div>
       </a>
-      <button class="card" onclick="openPasswordModal()">
-        <div class="t">🔒 Сменить пароль</div>
+      <button class="badge-card" onclick="openPasswordModal()">
+        <div class="tab"></div><div class="glyph">🔒</div>
+        <div class="body"><div class="t">Сменить пароль</div></div>
       </button>
-      <button class="card" onclick="logout()">
-        <div class="t">🚪 Выйти</div>
+      <button class="badge-card tone-red" onclick="logout()">
+        <div class="tab"></div><div class="glyph">🚪</div>
+        <div class="body"><div class="t">Выйти</div></div>
       </button>`;
   } else {
     cards.innerHTML = `
-      <a class="card" href="/scan.html">
-        <div class="t">📷 Отметить приход/уход</div>
-        <div class="d">Сканировать QR-код на посту охраны</div>
+      <a class="badge-card tone-amber" href="/scan.html">
+        <div class="tab"></div><div class="glyph">📷</div>
+        <div class="body"><div class="t">Отметить приход/уход</div>
+        <div class="d">Сканировать QR-код на посту охраны</div></div>
       </a>
-      <button class="card" onclick="openPasswordModal()">
-        <div class="t">🔒 Сменить пароль</div>
+      <button class="badge-card" onclick="openPasswordModal()">
+        <div class="tab"></div><div class="glyph">🔒</div>
+        <div class="body"><div class="t">Сменить пароль</div></div>
       </button>
-      <button class="card" onclick="logout()">
-        <div class="t">🚪 Выйти</div>
+      <button class="badge-card tone-red" onclick="logout()">
+        <div class="tab"></div><div class="glyph">🚪</div>
+        <div class="body"><div class="t">Выйти</div></div>
       </button>`;
   }
 }

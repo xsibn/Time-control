@@ -25,6 +25,12 @@
   .wrap { max-width: 900px; margin: 0 auto; }
   h1 { font-size: 22px; margin-bottom: 4px; }
   .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+  .links-row { display: flex; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; align-items: center; }
+  .links-row a, .links-row button {
+    color: var(--accent); font-size: 13px; text-decoration: none;
+    border: 1px solid var(--border); padding: 8px 14px; border-radius: 10px;
+    background: transparent; cursor: pointer; font-family: inherit;
+  }
   .employee-search {
     width: 100%;
     box-sizing: border-box;
@@ -148,10 +154,12 @@
 </head>
 <body>
 <div class="wrap">
-  <a class="back" href="/index.html">← Назад</a>
-  <a class="back" href="/admin.html">← К сотрудникам</a>
+  <div class="links-row">
+    <a href="/index.html">← Назад</a>
+    <a href="/admin.html">👥 К сотрудникам</a>
+    <button onclick="logout()">🚪 Выйти</button>
+  </div>
   <h1>Журнал прихода / ухода</h1>
-  <button onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.href='/login.html')" style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;">Выйти</button>
 
   <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank">
     <span class="export-label">📊 Экспорт в Excel за период:</span>
@@ -161,7 +169,6 @@
     <button type="submit">Скачать</button>
     <span class="export-label">(оставьте пустым — весь период)</span>
   </form>
-  <div class="sub">Приход и уход определяются автоматически по очереди сканирований. Здесь они сведены по сменам. Можно добавить отметку вручную или отредактировать существующую.</div>
 
   <div class="add-row">
     <button class="add-btn" onclick="openMarksModal()">🕒 Отметки приход/уход</button>
@@ -393,6 +400,11 @@ function renderLogs() {
   `).join('');
 }
 
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  location.href = '/login.html';
+}
+
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
@@ -574,10 +586,10 @@ async function saveMarkEntry(idx) {
     return;
   }
 
-  msg.textContent = 'Сохранено';
-  msg.className = 'msg ok';
   await load();
   selectMarksDay(selectedMarksDay);
+  msg.textContent = 'Сохранено';
+  msg.className = 'msg ok';
 }
 
 async function deleteMarkEntry(idx) {
@@ -603,6 +615,8 @@ async function deleteMarkEntry(idx) {
 
   await load();
   selectMarksDay(selectedMarksDay);
+  msg.textContent = 'Отметка удалена';
+  msg.className = 'msg ok';
 }
 
 (async () => {

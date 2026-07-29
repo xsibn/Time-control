@@ -435,6 +435,59 @@ const TIMESHEET_CODES = [
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-ZА-Я0-9]{1,4}$/i;
+const HHMM_RE = /^([0-1]?\d|2[0-3]):([0-5]\d)$/;
+const DEFAULT_DAY_SHIFT_START = '07:00';
+const DEFAULT_NIGHT_SHIFT_START = '20:00';
+
+function getShiftSettings() {
+  const day = db.getSetting('day_shift_start');
+  const night = db.getSetting('night_shift_start');
+  return {
+    day_shift_start: HHMM_RE.test(day || '') ? day : DEFAULT_DAY_SHIFT_START,
+    night_shift_start: HHMM_RE.test(night || '') ? night : DEFAULT_NIGHT_SHIFT_START,
+  };
+}
+
+function hhmmToMinutes(str) {
+  const m = HHMM_RE.exec(str);
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+// Определяет, попадает ли отметка "приход" в ночную смену, по времени
+// прихода и настроенным администратором границам дневной/ночной смены.
+// Дневная зона — [day_shift_start, night_shift_start), ночная — всё
+// остальное время суток (включая переход через полночь). Час/минута
+// берутся из timestamp как есть (без часового пояса — так же, как и
+// остальная часть приложения трактует хранимое время).
+function isNightCheckIn(timestamp, settings) {
+  const d = new Date(timestamp.replace(' ', 'T') + 'Z');
+  const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const dayStart = hhmmToMinutes(settings.day_shift_start);
+  const nightStart = hhmmToMinutes(settings.night_shift_start);
+  if (dayStart <= nightStart) {
+    return minutes >= nightStart || minutes < dayStart;
+  }
+  // Необычная настройка (граница ночи раньше границы дня) — считаем ночной
+  // зоной промежуток между ними.
+  return minutes >= nightStart && minutes < dayStart;
+}
+
+// Границы дневной/ночной смены — используются при экспорте, чтобы отнести
+// фактически отработанное время (по отметке прихода) к дневным или ночным
+// часам в табеле, независимо от заданного сотруднику графика.
+app.get('/api/settings/shifts', requireAuth('admin'), (req, res) => {
+  res.json(getShiftSettings());
+});
+
+app.patch('/api/settings/shifts', requireAuth('admin'), (req, res) => {
+  const { day_shift_start, night_shift_start } = req.body || {};
+  if (!HHMM_RE.test(day_shift_start || '') || !HHMM_RE.test(night_shift_start || '')) {
+    return res.status(400).json({ error: 'Укажите время в формате ЧЧ:ММ' });
+  }
+  db.setSetting('day_shift_start', day_shift_start);
+  db.setSetting('night_shift_start', night_shift_start);
+  res.json(getShiftSettings());
+});
 
 app.get('/api/timesheet-codes', requireAuth('admin'), (req, res) => {
   res.json(TIMESHEET_CODES);
@@ -527,14 +580,15 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
   function daysInMonth(year, month0) {
     return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
   }
-  function isNightSchedule(position) {
-    if (!position || !position.work_start) return false;
-    const hour = Number(String(position.work_start).slice(0, 2));
-    return hour >= 18 || hour < 6;
-  }
+  // Границы дневной/ночной смены, заданные администратором (см. /api/settings/shifts).
+  // Определяют, какая часть отработанного времени идёт в табеле как "ночная" —
+  // по фактическому времени отметки "приход", а не по графику должности.
+  const shiftSettings = getShiftSettings();
 
   // Часы по сменам: employeeId -> 'YYYY-MM-DD' -> суммарные часы (только завершённые смены)
   const hoursByEmployeeDate = new Map();
+  // employeeId -> Set('YYYY-MM-DD') — дни, чья смена по факту прихода признана ночной.
+  const nightDatesByEmployee = new Map();
   for (const s of summaryShifts) {
     if (!s.out) continue; // смена ещё не завершена — не включаем в табель
     const inDate = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
@@ -544,6 +598,11 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     if (!hoursByEmployeeDate.has(s.employee_id)) hoursByEmployeeDate.set(s.employee_id, new Map());
     const perDate = hoursByEmployeeDate.get(s.employee_id);
     perDate.set(dateKey, (perDate.get(dateKey) || 0) + hours);
+
+    if (isNightCheckIn(s.in.timestamp, shiftSettings)) {
+      if (!nightDatesByEmployee.has(s.employee_id)) nightDatesByEmployee.set(s.employee_id, new Set());
+      nightDatesByEmployee.get(s.employee_id).add(dateKey);
+    }
   }
 
   // Определяем список месяцев для листов: если указан период — все месяцы
@@ -718,6 +777,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     let rowNum = 4;
     employees.forEach((emp, idx) => {
       const perDate = hoursByEmployeeDate.get(emp.id);
+      const nightDates = nightDatesByEmployee.get(emp.id);
       const positions = emp.positions && emp.positions.length ? emp.positions : [null];
 
       // По каждому дню считаем распределение часов по должностям и переработку.
@@ -730,10 +790,9 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
       }
 
       positions.forEach((pos, posIdx) => {
-        const night = isNightSchedule(pos);
         const dayCode = new Array(numDays + 1).fill('');
         const dayHours = new Array(numDays + 1).fill(null);
-        let monthDaysWorked = 0, monthHours = 0, weekendDays = 0, monthOvertime = 0;
+        let monthDaysWorked = 0, monthHours = 0, weekendDays = 0, monthOvertime = 0, monthNight = 0;
         let absenceDays = 0;
         const reasonCounts = new Map(); // code -> кол-во дней (для колонок "по причинам")
         const empManualCodes = manualCodesMap.get(emp.id);
@@ -761,6 +820,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
             dayHours[day] = hours;
             monthDaysWorked++;
             monthHours += hours;
+            if (nightDates && nightDates.has(dateKey)) monthNight += hours;
           } else if (isWeekend && posIdx === 0) {
             dayCode[day] = 'В';
             weekendDays++;
@@ -807,7 +867,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         setMerged(COL_DAYS, monthDaysWorked || null);
         setMerged(COL_HOURS, monthHours || null);
         setMerged(COL_OVERTIME, posIdx === 0 ? (monthOvertime || null) : null);
-        setMerged(COL_NIGHT, night ? (monthHours || null) : null);
+        setMerged(COL_NIGHT, monthNight || null);
         const reasonEntries = Array.from(reasonCounts.entries());
         setMerged(COL_WEEKEND_H, null);
         setMerged(COL_ABSENCE, absenceDays || null);

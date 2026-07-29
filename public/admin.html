@@ -128,6 +128,45 @@
     background: transparent; color: var(--accent); cursor: pointer; font-size: 13px; font-family: inherit;
   }
   .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+  .codes-modal { max-width: 640px; }
+  .codes-controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 14px; }
+  .codes-controls label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .codes-controls input, .codes-controls select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 10px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  }
+  .days-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 14px;
+  }
+  .day-cell {
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 4px; text-align: center;
+    cursor: pointer; background: var(--bg); font-size: 12px; user-select: none;
+  }
+  .day-cell.weekend { border-color: #3a3040; }
+  .day-cell.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .day-cell .day-num { color: var(--muted); font-size: 11px; }
+  .day-cell .day-code { font-weight: 700; font-size: 13px; min-height: 15px; }
+  .day-cell .day-code.auto-y { color: #34c77b; }
+  .day-cell .day-code.auto-v { color: var(--muted); }
+  .day-cell .day-code.manual { color: #ffb84f; }
+  .code-palette { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .code-palette button {
+    padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent;
+    color: var(--text); font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .code-palette button:hover { border-color: var(--accent); }
+  .code-palette button.clear { color: #ff5470; }
+  .range-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 12px; }
+  .range-row label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .range-row input, .range-row select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 9px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  }
+  .range-row button {
+    padding: 8px 14px; border-radius: 8px; border: none; background: var(--accent);
+    color: #fff; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
 </style>
 </head>
 <body>
@@ -139,10 +178,8 @@
   </div>
 
   <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank">
-    <span class="export-label">📊 Экспорт в Excel за период:</span>
-    <input type="date" name="from" />
-    <span class="export-dash">—</span>
-    <input type="date" name="to" />
+    <span class="export-label">📊 Экспорт в Excel за месяц:</span>
+    <input type="month" name="month" id="exportMonth" />
     <button type="submit">Скачать</button>
     <span class="export-label">(оставьте пустым — выгрузится весь период)</span>
   </form>
@@ -213,6 +250,48 @@
   </div>
 </div>
 
+<!-- Модалка: коды табеля (отпуск, больничный и т.п.) -->
+<div class="overlay" id="codesOverlay">
+  <div class="modal codes-modal">
+    <h2 id="codesModalTitle">Коды табеля</h2>
+    <div class="codes-controls">
+      <div>
+        <label>Месяц</label>
+        <input type="month" id="codesMonth" onchange="loadCodesForMonth()" />
+      </div>
+    </div>
+
+    <div class="hint" style="margin-bottom:8px;">
+      Кликните на день, затем выберите код ниже. «Я» и обычные «В» считаются автоматически
+      по отметкам прихода/ухода — ставьте код только для отпуска, больничного и т.п.
+    </div>
+    <div class="days-grid" id="daysGrid"></div>
+
+    <div class="code-palette" id="codePalette"></div>
+
+    <div class="range-row">
+      <div>
+        <label>Период с</label>
+        <input type="date" id="rangeFrom" />
+      </div>
+      <div>
+        <label>по</label>
+        <input type="date" id="rangeTo" />
+      </div>
+      <div>
+        <label>Код (например, отпуск)</label>
+        <select id="rangeCode"></select>
+      </div>
+      <button onclick="applyRangeCode()">Применить к периоду</button>
+    </div>
+
+    <div class="msg" id="codesMsg"></div>
+    <div class="modal-actions">
+      <button onclick="closeCodesModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let currentEmployees = [];
 
@@ -272,6 +351,7 @@ function renderEmployeeRows() {
       <td><span class="badge ${e.active ? 'active' : 'inactive'}">${e.active ? 'Активен' : 'Отключён'}</span></td>
       <td>
         <button class="btn-small" onclick="openPosModal(${e.id})">✏️ Должности</button>
+        <button class="btn-small" onclick="openCodesModal(${e.id})">📅 Коды табеля</button>
         <button class="btn-small" onclick="toggleActive(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'Отключить' : 'Включить'}</button>
       </td>
     </tr>
@@ -436,7 +516,142 @@ async function submitPositions() {
   setTimeout(() => { closePosModal(); loadEmployees(); }, 500);
 }
 
+// --- Коды табеля ---
+
+let timesheetCodes = [];
+let codesEmployeeId = null;
+let codesData = new Map(); // 'YYYY-MM-DD' -> code
+let selectedDay = null;
+
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+async function ensureTimesheetCodes() {
+  if (timesheetCodes.length) return;
+  const resp = await fetch('/api/timesheet-codes');
+  timesheetCodes = resp.ok ? await resp.json() : [];
+}
+
+function renderCodePalette() {
+  const palette = document.getElementById('codePalette');
+  palette.innerHTML = timesheetCodes.map(c =>
+    `<button title="${escapeHtml(c.label)}" onclick="applyDayCode('${c.code}')">${escapeHtml(c.code)}</button>`
+  ).join('') + '<button class="clear" onclick="applyDayCode(\'\')">✕ Очистить</button>';
+
+  const rangeSelect = document.getElementById('rangeCode');
+  rangeSelect.innerHTML = timesheetCodes
+    .filter(c => c.code !== 'В')
+    .map(c => `<option value="${c.code}">${escapeHtml(c.code)} — ${escapeHtml(c.label)}</option>`).join('');
+}
+
+async function openCodesModal(id) {
+  const emp = currentEmployees.find(e => e.id === id);
+  if (!emp) return;
+  codesEmployeeId = id;
+  selectedDay = null;
+  document.getElementById('codesModalTitle').textContent = `Коды табеля — ${emp.full_name}`;
+  document.getElementById('codesMonth').value = currentMonthValue();
+  document.getElementById('codesMsg').textContent = '';
+  await ensureTimesheetCodes();
+  renderCodePalette();
+  document.getElementById('codesOverlay').classList.add('open');
+  await loadCodesForMonth();
+}
+
+function closeCodesModal() {
+  document.getElementById('codesOverlay').classList.remove('open');
+  codesEmployeeId = null;
+}
+
+async function loadCodesForMonth() {
+  if (!codesEmployeeId) return;
+  const month = document.getElementById('codesMonth').value;
+  if (!month) return;
+  const resp = await fetch(`/api/day-codes?month=${month}&employee_id=${codesEmployeeId}`);
+  const list = resp.ok ? await resp.json() : [];
+  codesData = new Map(list.map(r => [r.date, r.code]));
+  selectedDay = null;
+
+  const [y, m] = month.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const grid = document.getElementById('daysGrid');
+  let html = '';
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateKey = `${month}-${String(day).padStart(2, '0')}`;
+    const dow = new Date(y, m - 1, day).getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    const manual = codesData.get(dateKey);
+    const codeClass = manual ? 'manual' : (isWeekend ? 'auto-v' : '');
+    const codeLabel = manual || (isWeekend ? 'В' : '');
+    html += `<div class="day-cell ${isWeekend ? 'weekend' : ''}" data-date="${dateKey}" onclick="selectDay('${dateKey}')">
+      <div class="day-num">${day}</div>
+      <div class="day-code ${codeClass}">${escapeHtml(codeLabel)}</div>
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function selectDay(dateKey) {
+  selectedDay = dateKey;
+  document.querySelectorAll('#daysGrid .day-cell').forEach(el => {
+    el.classList.toggle('selected', el.dataset.date === dateKey);
+  });
+}
+
+async function applyDayCode(code) {
+  if (!selectedDay || !codesEmployeeId) {
+    document.getElementById('codesMsg').textContent = 'Сначала выберите день в календаре';
+    document.getElementById('codesMsg').className = 'msg error';
+    return;
+  }
+  const resp = await fetch('/api/day-codes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id: codesEmployeeId, date: selectedDay, code }),
+  });
+  const msg = document.getElementById('codesMsg');
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    msg.textContent = data.error || 'Не удалось сохранить код';
+    msg.className = 'msg error';
+    return;
+  }
+  msg.textContent = 'Сохранено';
+  msg.className = 'msg ok';
+  await loadCodesForMonth();
+  selectDay(selectedDay);
+}
+
+async function applyRangeCode() {
+  const from = document.getElementById('rangeFrom').value;
+  const to = document.getElementById('rangeTo').value;
+  const code = document.getElementById('rangeCode').value;
+  const msg = document.getElementById('codesMsg');
+  if (!from || !to || !code || !codesEmployeeId) {
+    msg.textContent = 'Укажите период и код';
+    msg.className = 'msg error';
+    return;
+  }
+  const resp = await fetch('/api/day-codes/range', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id: codesEmployeeId, from, to, code }),
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    msg.textContent = data.error || 'Не удалось применить период';
+    msg.className = 'msg error';
+    return;
+  }
+  msg.textContent = `Код ${code} проставлен на весь период`;
+  msg.className = 'msg ok';
+  await loadCodesForMonth();
+}
+
 (async () => {
+  document.getElementById('exportMonth').value = currentMonthValue();
   if (await checkAuth()) loadEmployees();
 })();
 </script>

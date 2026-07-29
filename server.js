@@ -418,13 +418,95 @@ function pairShiftsByEmployee(logs) {
   return shifts;
 }
 
+// --- Коды табеля (ручные отметки поверх авторасчёта: отпуск, больничный и т.п.) ---
+// Список стандартных кодов формы Т-12/Т-13 (сокращённый набор, наиболее
+// употребимый). Админ может ввести и произвольный код (до 4 символов).
+const TIMESHEET_CODES = [
+  { code: 'ОТ', label: 'Отпуск' },
+  { code: 'ДО', label: 'Отпуск без сохранения з/п' },
+  { code: 'Б', label: 'Больничный' },
+  { code: 'К', label: 'Командировка' },
+  { code: 'ПР', label: 'Прогул' },
+  { code: 'НН', label: 'Неявка по невыясненным причинам' },
+  { code: 'Р', label: 'Отпуск по уходу за ребёнком' },
+  { code: 'ПК', label: 'Повышение квалификации' },
+  { code: 'В', label: 'Выходной (вручную)' },
+];
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CODE_RE = /^[A-ZА-Я0-9]{1,4}$/i;
+
+app.get('/api/timesheet-codes', requireAuth('admin'), (req, res) => {
+  res.json(TIMESHEET_CODES);
+});
+
+// Коды за месяц — либо для всех сотрудников (без employee_id), либо для одного.
+app.get('/api/day-codes', requireAuth('admin'), (req, res) => {
+  const { month, employee_id } = req.query || {};
+  const m = /^(\d{4})-(\d{2})$/.exec(month || '');
+  if (!m) return res.status(400).json({ error: 'Укажите месяц в формате YYYY-MM' });
+  const year = Number(m[1]);
+  const month1 = Number(m[2]);
+  const list = employee_id
+    ? db.listDayCodesForEmployee(employee_id, year, month1)
+    : db.listDayCodesForMonth(year, month1);
+  res.json(list);
+});
+
+// Установить/снять код на один день.
+app.post('/api/day-codes', requireAuth('admin'), (req, res) => {
+  const { employee_id, date, code } = req.body || {};
+  const employee = db.getUserById(employee_id);
+  if (!employee || employee.role !== 'employee') {
+    return res.status(404).json({ error: 'Сотрудник не найден' });
+  }
+  if (!DATE_ONLY_RE.test(date || '')) {
+    return res.status(400).json({ error: 'Некорректная дата' });
+  }
+  if (code && !CODE_RE.test(code)) {
+    return res.status(400).json({ error: 'Код — до 4 букв/цифр' });
+  }
+  const rec = db.setDayCode(employee.id, date, code || '');
+  res.json(rec || { employee_id: employee.id, date, code: '' });
+});
+
+// Установить код сразу на диапазон дат (например, отпуск на 2 недели).
+app.post('/api/day-codes/range', requireAuth('admin'), (req, res) => {
+  const { employee_id, from, to, code } = req.body || {};
+  const employee = db.getUserById(employee_id);
+  if (!employee || employee.role !== 'employee') {
+    return res.status(404).json({ error: 'Сотрудник не найден' });
+  }
+  if (!DATE_ONLY_RE.test(from || '') || !DATE_ONLY_RE.test(to || '')) {
+    return res.status(400).json({ error: 'Укажите даты периода' });
+  }
+  if (!code || !CODE_RE.test(code)) {
+    return res.status(400).json({ error: 'Укажите код — до 4 букв/цифр' });
+  }
+  try {
+    db.setDayCodeRange(employee.id, from, to, code);
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Не удалось применить период' });
+  }
+  res.json({ ok: true });
+});
+
 // --- Экспорт данных в Excel (только для админа) ---
 
 app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-  let { from, to } = req.query || {};
-  from = DATE_RE.test(from || '') ? from : null;
-  to = DATE_RE.test(to || '') ? to : null;
+  let { from, to, month } = req.query || {};
+  const monthMatch = /^(\d{4})-(\d{2})$/.exec(month || '');
+  if (monthMatch) {
+    const y = Number(monthMatch[1]);
+    const m0 = Number(monthMatch[2]) - 1;
+    from = `${monthMatch[1]}-${monthMatch[2]}-01`;
+    const lastDay = new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
+    to = `${monthMatch[1]}-${monthMatch[2]}-${String(lastDay).padStart(2, '0')}`;
+  } else {
+    from = DATE_RE.test(from || '') ? from : null;
+    to = DATE_RE.test(to || '') ? to : null;
+  }
   if (from && to && from > to) { [from, to] = [to, from]; }
 
   const workbook = new ExcelJS.Workbook();
@@ -502,6 +584,15 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     const month0 = month1 - 1;
     const numDays = daysInMonth(year, month0);
     const half1Days = Math.min(15, numDays);
+
+    // Ручные коды (отпуск, больничный и т.п.), проставленные администратором
+    // за этот месяц — перекрывают автоматический расчёт по отметкам приход/уход.
+    const manualCodesMap = new Map(); // employee_id -> Map(dateKey -> code)
+    for (const rec of db.listDayCodesForMonth(year, month1)) {
+      if (!manualCodesMap.has(rec.employee_id)) manualCodesMap.set(rec.employee_id, new Map());
+      manualCodesMap.get(rec.employee_id).set(rec.date, rec.code);
+    }
+
     const sheetName = `${RU_MONTHS[month0]} ${String(year).slice(2)}`;
     const sheet = workbook.addWorksheet(sheetName.slice(0, 31));
 
@@ -643,13 +734,29 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         const dayCode = new Array(numDays + 1).fill('');
         const dayHours = new Array(numDays + 1).fill(null);
         let monthDaysWorked = 0, monthHours = 0, weekendDays = 0, monthOvertime = 0;
+        let absenceDays = 0;
+        const reasonCounts = new Map(); // code -> кол-во дней (для колонок "по причинам")
+        const empManualCodes = manualCodesMap.get(emp.id);
 
         for (let day = 1; day <= numDays; day++) {
           const dateObj = new Date(Date.UTC(year, month0, day));
           const isWeekend = dateObj.getUTCDay() === 0 || dateObj.getUTCDay() === 6;
+          const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          const manualCode = empManualCodes ? empManualCodes.get(dateKey) : null;
           const dayAlloc = allocByDay.get(day);
           const hours = dayAlloc ? dayAlloc.alloc[posIdx] : undefined;
-          if (hours) {
+
+          if (manualCode) {
+            // Ручная отметка администратора перекрывает автоматический расчёт.
+            dayCode[day] = manualCode;
+            dayHours[day] = null;
+            if (manualCode === 'В') {
+              weekendDays++;
+            } else {
+              absenceDays++;
+              reasonCounts.set(manualCode, (reasonCounts.get(manualCode) || 0) + 1);
+            }
+          } else if (hours) {
             dayCode[day] = 'Я';
             dayHours[day] = hours;
             monthDaysWorked++;
@@ -658,7 +765,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
             dayCode[day] = 'В';
             weekendDays++;
           }
-          if (posIdx === 0 && dayAlloc) monthOvertime += dayAlloc.overtime;
+          if (posIdx === 0 && dayAlloc && !manualCode) monthOvertime += dayAlloc.overtime;
         }
 
         const codeRow = sheet.getRow(rowNum);
@@ -701,10 +808,11 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         setMerged(COL_HOURS, monthHours || null);
         setMerged(COL_OVERTIME, posIdx === 0 ? (monthOvertime || null) : null);
         setMerged(COL_NIGHT, night ? (monthHours || null) : null);
+        const reasonEntries = Array.from(reasonCounts.entries());
         setMerged(COL_WEEKEND_H, null);
-        setMerged(COL_ABSENCE, null);
-        setMerged(COL_REASON_CODE, null);
-        setMerged(COL_REASON_QTY, null);
+        setMerged(COL_ABSENCE, absenceDays || null);
+        setMerged(COL_REASON_CODE, reasonEntries.length ? reasonEntries.map(([c]) => c).join('/') : null);
+        setMerged(COL_REASON_QTY, reasonEntries.length ? reasonEntries.map(([, n]) => n).join('/') : null);
         setMerged(COL_WEEKEND_D, posIdx === 0 ? (weekendDays || null) : null);
 
         rowNum += 2;

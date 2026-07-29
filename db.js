@@ -15,11 +15,15 @@ function nowIso() {
 
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) {
-    return { users: [], time_logs: [], settings: {}, next_user_id: 1, next_log_id: 1 };
+    return { users: [], time_logs: [], day_codes: [], settings: {}, next_user_id: 1, next_log_id: 1, next_daycode_id: 1 };
   }
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(raw);
+    const data = JSON.parse(raw);
+    // Совместимость со старыми файлами данных, созданными до появления кодов табеля.
+    if (!Array.isArray(data.day_codes)) data.day_codes = [];
+    if (!data.next_daycode_id) data.next_daycode_id = 1;
+    return data;
   } catch (err) {
     throw new Error(`Не удалось прочитать data.json: ${err.message}`);
   }
@@ -305,6 +309,66 @@ function deleteLog(id) {
   return removed;
 }
 
+// --- Коды табеля (ручные отметки: отпуск, больничный и т.п.) ---
+// Одна запись на пару (сотрудник, дата). code='' или null — снимает отметку
+// (ячейка снова считается автоматически по отметкам приход/уход).
+// date — строка 'YYYY-MM-DD'.
+
+function findDayCode(employeeId, date) {
+  return state.day_codes.find(d => d.employee_id === Number(employeeId) && d.date === date) || null;
+}
+
+function setDayCode(employeeId, date, code) {
+  const existing = findDayCode(employeeId, date);
+  const clean = code ? String(code).trim().toUpperCase().slice(0, 4) : '';
+  if (!clean) {
+    if (existing) {
+      state.day_codes = state.day_codes.filter(d => d !== existing);
+      persist();
+    }
+    return null;
+  }
+  if (existing) {
+    existing.code = clean;
+    persist();
+    return existing;
+  }
+  const rec = { id: state.next_daycode_id++, employee_id: Number(employeeId), date, code: clean };
+  state.day_codes.push(rec);
+  persist();
+  return rec;
+}
+
+// Проставляет один код на весь диапазон дат [from, to] включительно —
+// используется для отпуска и других многодневных отметок.
+function setDayCodeRange(employeeId, from, to, code) {
+  const start = new Date(from + 'T00:00:00Z');
+  const end = new Date(to + 'T00:00:00Z');
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    const err = new Error('Некорректный период дат');
+    err.code = 'INVALID_RANGE';
+    throw err;
+  }
+  const results = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const dateKey = cursor.toISOString().slice(0, 10);
+    results.push(setDayCode(employeeId, dateKey, code));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return results;
+}
+
+function listDayCodesForMonth(year, month1) {
+  const prefix = `${year}-${String(month1).padStart(2, '0')}`;
+  return state.day_codes.filter(d => d.date.startsWith(prefix));
+}
+
+function listDayCodesForEmployee(employeeId, year, month1) {
+  const prefix = `${year}-${String(month1).padStart(2, '0')}`;
+  return state.day_codes.filter(d => d.employee_id === Number(employeeId) && d.date.startsWith(prefix));
+}
+
 module.exports = {
   getSetting,
   setSetting,
@@ -330,4 +394,8 @@ module.exports = {
   purgeLogsOlderThan,
   getOrCreateGuardSecret,
   getOrCreateSessionSecret,
+  setDayCode,
+  setDayCodeRange,
+  listDayCodesForMonth,
+  listDayCodesForEmployee,
 };

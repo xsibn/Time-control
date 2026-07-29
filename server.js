@@ -413,6 +413,10 @@ function pairShiftsByEmployee(logs) {
   }
   const shifts = [];
   for (const own of byEmployee.values()) {
+    // Сортируем по фактическому времени отметки, а не по порядку id — ручное
+    // добавление/редактирование отметки задним числом даёт id, не совпадающий
+    // с хронологией, что иначе ломает пары приход/уход.
+    own.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     let openIn = null;
     for (const log of own) {
       if (log.type === 'in') {

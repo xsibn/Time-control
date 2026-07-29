@@ -222,8 +222,11 @@ function localInputValueToUtcTimestamp(value) {
 }
 
 function pairShifts(logs, employeeId) {
-  // logs приходят от новых к старым — разворачиваем в хронологический порядок
-  const own = logs.filter(l => l.employee_id === employeeId).slice().reverse();
+  // Сортируем по фактическому времени отметки, а не по порядку прихода с
+  // сервера (id/порядок в массиве) — ручное добавление/редактирование
+  // задним числом может дать записи id, не совпадающий с хронологией.
+  const own = logs.filter(l => l.employee_id === employeeId).slice()
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   const shifts = [];
   let openIn = null;
   for (const log of own) {

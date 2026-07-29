@@ -25,6 +25,18 @@
   .wrap { max-width: 900px; margin: 0 auto; }
   h1 { font-size: 22px; margin-bottom: 4px; }
   .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+  .employee-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 18px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #2a3040);
+    background: var(--panel, #12151f);
+    color: inherit;
+    font-size: 14px;
+  }
+  .employee-search:focus { outline: none; border-color: #5b8cff; }
   a.back { color: var(--muted); font-size: 13px; text-decoration: none; margin-right: 14px; }
   .day-group { margin-bottom: 22px; }
   .day-title {
@@ -117,6 +129,8 @@
   <div class="add-row">
     <button class="add-btn" onclick="openAddModal()">➕ Добавить отметку</button>
   </div>
+
+  <input type="text" id="employeeSearch" class="employee-search" placeholder="🔎 Поиск сотрудника по ФИО…" oninput="renderLogs()" />
 
   <div id="content">Загрузка…</div>
   <div class="refresh">Обновляется автоматически каждые 15 секунд</div>
@@ -211,18 +225,52 @@ function rawWorkedHours(inTs, outTs) {
   return Math.floor(totalMin / 60);
 }
 
-// Формат числа часов без лишних нулей после точки (8, 4.5 и т.п.)
+// Формат числа часов — только целые (часы уже округлены вниз в rawWorkedHours).
 function formatHoursNum(h) {
-  return Number.isInteger(h) ? String(h) : String(Math.round(h * 10) / 10);
+  return String(Math.floor(h));
 }
 
-// Колонка "Отработано": берём РЕАЛЬНОЕ время по отметкам приход/уход и
-// разносим его по должностям сотрудника по порядку (сначала основная, потом
-// совмещаемые), но не больше нормы (daily_hours) для каждой — так по закону
-// смена не может быть длиннее нормы на должность. Если у должности норма не
-// задана — ей отдаётся весь остаток фактического времени без ограничения.
-// Если сотрудник ушёл раньше — это сразу видно: последующим должностям
-// достанется меньше часов или 0, а не фиксированное число "для галочки".
+// Порог, с которого превышение суммарного графика (сумма daily_hours всех
+// должностей сотрудника) считается переработкой.
+const OVERTIME_THRESHOLD_HOURS = 1;
+
+// Разносит фактически отработанные (целые) часы по должностям сотрудника:
+// каждая должность получает часы строго в пределах своей дневной нормы
+// (daily_hours), в порядке основная → совмещаемые. Всё, что отработано
+// сверх суммы норм всех должностей (например, график 8+4=12ч, а по факту
+// 13ч) — это переработка ("сверхурочные"), не подменяет часы последней
+// должности, а считается отдельно и приписывается к основной должности.
+// Задержка меньше часа переработкой не считается и остаётся на основной
+// должности как обычные часы.
+function allocateHoursAcrossPositions(worked, positions) {
+  const alloc = new Array(positions.length).fill(0);
+  let remaining = worked;
+  let openEnded = false;
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
+    const hasCap = pos.daily_hours !== null && pos.daily_hours !== undefined && pos.daily_hours !== '';
+    if (!hasCap) {
+      alloc[i] = remaining;
+      remaining = 0;
+      openEnded = true;
+      break;
+    }
+    const cap = Number(pos.daily_hours);
+    const allocated = Math.max(0, Math.min(remaining, cap));
+    alloc[i] = allocated;
+    remaining -= allocated;
+  }
+  let overtime = 0;
+  if (!openEnded && remaining > 0) {
+    if (remaining >= OVERTIME_THRESHOLD_HOURS) overtime = remaining;
+    alloc[0] += remaining;
+  }
+  return { alloc, overtime };
+}
+
+// Колонка "Отработано": берём РЕАЛЬНОЕ время по отметкам приход/уход
+// (целые часы) и разносим его по должностям сотрудника в пределах их норм;
+// излишек сверх суммарного графика показываем отдельно как переработку.
 function formatDuration(emp, inTs, outTs) {
   const positions = emp && Array.isArray(emp.positions) ? emp.positions.filter(p => p && p.name) : [];
   const raw = rawWorkedHours(inTs, outTs);
@@ -231,15 +279,14 @@ function formatDuration(emp, inTs, outTs) {
     return `${raw} ч`;
   }
 
-  let remaining = raw;
-  const parts = positions.map(pos => {
-    const hasCap = pos.daily_hours !== null && pos.daily_hours !== undefined && pos.daily_hours !== '';
-    const cap = hasCap ? Number(pos.daily_hours) : Infinity;
-    const allocated = Math.max(0, Math.min(remaining, cap));
-    remaining -= allocated;
-    const label = formatHoursNum(allocated) + ' ч';
+  const { alloc, overtime } = allocateHoursAcrossPositions(raw, positions);
+  const parts = positions.map((pos, i) => {
+    const label = formatHoursNum(alloc[i]) + ' ч';
     return positions.length > 1 ? `${label} (${escapeHtml(pos.name)})` : label;
   });
+  if (overtime > 0) {
+    parts.push(`${formatHoursNum(overtime)} ч сверхурочно`);
+  }
 
   return parts.join(' + ');
 }
@@ -262,10 +309,19 @@ async function load() {
   const employees = await employeesResp.json();
   currentLogs = logs;
   currentEmployees = employees;
+  renderLogs();
+}
+
+function renderLogs() {
+  const logs = currentLogs;
+  const employees = currentEmployees;
+  const query = (document.getElementById('employeeSearch')?.value || '').trim().toLowerCase();
+  const matchesQuery = (emp) => !query || (emp.full_name || '').toLowerCase().includes(query);
 
   // Собираем смены по каждому сотруднику, затем сводим всё в один список с датой
   const allShifts = [];
   for (const emp of employees) {
+    if (!matchesQuery(emp)) continue;
     const shifts = pairShifts(logs, emp.id);
     for (const s of shifts) {
       allShifts.push({ employee: emp, ...s });
@@ -285,7 +341,7 @@ async function load() {
 
   const content = document.getElementById('content');
   if (!allShifts.length) {
-    content.innerHTML = '<div style="color:#8a94ab;">Пока нет отметок прихода/ухода</div>';
+    content.innerHTML = `<div style="color:#8a94ab;">${query ? 'Ничего не найдено' : 'Пока нет отметок прихода/ухода'}</div>`;
     return;
   }
 

@@ -458,7 +458,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     const inDate = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
     const outDate = new Date(s.out.timestamp.replace(' ', 'T') + 'Z');
     const dateKey = inDate.toISOString().slice(0, 10);
-    const hours = Math.round(((outDate - inDate) / 3600000) * 10) / 10;
+    const hours = Math.floor((outDate - inDate) / 3600000);
     if (!hoursByEmployeeDate.has(s.employee_id)) hoursByEmployeeDate.set(s.employee_id, new Map());
     const perDate = hoursByEmployeeDate.get(s.employee_id);
     perDate.set(dateKey, (perDate.get(dateKey) || 0) + hours);
@@ -505,7 +505,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     const sheetName = `${RU_MONTHS[month0]} ${String(year).slice(2)}`;
     const sheet = workbook.addWorksheet(sheetName.slice(0, 31));
 
-    const FIXED_COLS = 3; // №, Фамилия/должность, Табельный номер
+    const FIXED_COLS = 4; // №, Фамилия/инициалы, Должность, Табельный номер
     const dayCol = (day) => day <= half1Days
       ? FIXED_COLS + day
       : FIXED_COLS + half1Days + 1 + (day - half1Days);
@@ -526,9 +526,11 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     sheet.mergeCells(1, 1, 3, 1);
     sheet.getCell(1, 1).value = '№\nп/п';
     sheet.mergeCells(1, 2, 3, 2);
-    sheet.getCell(1, 2).value = 'Фамилия, инициалы, должность';
+    sheet.getCell(1, 2).value = 'Фамилия, инициалы';
     sheet.mergeCells(1, 3, 3, 3);
-    sheet.getCell(1, 3).value = 'Табельный номер';
+    sheet.getCell(1, 3).value = 'Должность';
+    sheet.mergeCells(1, 4, 3, 4);
+    sheet.getCell(1, 4).value = 'Табельный номер';
 
     sheet.mergeCells(1, FIXED_COLS + 1, 1, itog2Col);
     sheet.getCell(1, FIXED_COLS + 1).value = 'Отметки о явках и неявках на работу по числам месяца';
@@ -570,47 +572,55 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     sheet.getRow(3).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
     sheet.getColumn(1).width = 5;
-    sheet.getColumn(2).width = 32;
-    sheet.getColumn(3).width = 14;
+    sheet.getColumn(2).width = 24;
+    sheet.getColumn(3).width = 20;
+    sheet.getColumn(4).width = 14;
     for (let day = 1; day <= numDays; day++) sheet.getColumn(dayCol(day)).width = 4;
     sheet.getColumn(itog1Col).width = 9;
     sheet.getColumn(itog2Col).width = 9;
     for (const [col] of rightHeaders) sheet.getColumn(col).width = 9;
 
-    // Порог, с которого превышение нормы должности считается переработкой
-    // и уходит на следующую (доп.) должность, а не остаётся на первой.
+    // Порог, с которого превышение суммарного графика (сумма daily_hours
+    // всех должностей сотрудника) считается переработкой.
     const OVERTIME_THRESHOLD_HOURS = 1;
 
-    // Разносит фактически отработанные часы по должностям сотрудника:
-    // сначала каждая должность получает часы в пределах своей дневной
-    // нормы (daily_hours); если сверх нормы сотрудник задержался на час
-    // и более — излишек ("переработка") передаётся следующей по порядку
-    // должности (а не просто прибавляется к первой). Если следующей
-    // должности нет, переработка остаётся на текущей.
+    // Разносит фактически отработанные часы по должностям сотрудника: каждая
+    // должность получает часы строго в пределах своей дневной нормы
+    // (daily_hours), в порядке основная → совмещаемые. Всё, что сотрудник
+    // отработал сверх суммы норм всех должностей (например, график 8+4=12ч,
+    // а по факту 13ч) — это переработка ("из них сверхурочных"), она не
+    // подменяет часы последней должности, а учитывается отдельно и
+    // приписывается к основной должности. Задержка меньше часа переработкой
+    // не считается и остаётся на основной должности как обычные часы.
     function allocateHoursAcrossPositions(worked, positions) {
       const alloc = new Array(positions.length).fill(0);
       let remaining = worked;
+      let openEnded = false; // есть должность без заданной нормы (по факту)
       for (let i = 0; i < positions.length; i++) {
-        if (remaining <= 0) break;
         const pos = positions[i];
         const hasCap = pos && pos.daily_hours !== null && pos.daily_hours !== undefined && pos.daily_hours !== '';
-        const cap = hasCap ? Number(pos.daily_hours) : Infinity;
-        const isLast = i === positions.length - 1;
-        if (!hasCap || isLast) {
-          // Нет нормы или это последняя доступная должность — забирает всё, что осталось.
+        if (!hasCap) {
+          // Должность без нормы — забирает весь остаток, переработку не считаем.
           alloc[i] = remaining;
           remaining = 0;
-        } else if (remaining - cap >= OVERTIME_THRESHOLD_HOURS) {
-          // Переработка от часа и больше — уходит на следующую должность.
-          alloc[i] = cap;
-          remaining -= cap;
-        } else {
-          // Небольшая (<1ч) задержка сверх нормы остаётся на этой же должности.
-          alloc[i] = remaining;
-          remaining = 0;
+          openEnded = true;
+          break;
         }
+        const cap = Number(pos.daily_hours);
+        const allocated = Math.max(0, Math.min(remaining, cap));
+        alloc[i] = allocated;
+        remaining -= allocated;
       }
-      return alloc;
+      let overtime = 0;
+      if (!openEnded && remaining > 0) {
+        if (remaining >= OVERTIME_THRESHOLD_HOURS) {
+          overtime = remaining;
+        }
+        // В любом случае остаток (даже <1ч) прибавляем к основной должности,
+        // чтобы сумма часов по дню сходилась с фактически отработанным временем.
+        alloc[0] += remaining;
+      }
+      return { alloc, overtime };
     }
 
     // --- Данные ---
@@ -619,8 +629,8 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
       const perDate = hoursByEmployeeDate.get(emp.id);
       const positions = emp.positions && emp.positions.length ? emp.positions : [null];
 
-      // По каждому дню считаем распределение часов по должностям.
-      const allocByDay = new Map(); // day -> [hours per position]
+      // По каждому дню считаем распределение часов по должностям и переработку.
+      const allocByDay = new Map(); // day -> { alloc: [...], overtime }
       for (let day = 1; day <= numDays; day++) {
         const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const worked = perDate ? perDate.get(dateKey) : undefined;
@@ -632,13 +642,13 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         const night = isNightSchedule(pos);
         const dayCode = new Array(numDays + 1).fill('');
         const dayHours = new Array(numDays + 1).fill(null);
-        let monthDaysWorked = 0, monthHours = 0, weekendDays = 0;
+        let monthDaysWorked = 0, monthHours = 0, weekendDays = 0, monthOvertime = 0;
 
         for (let day = 1; day <= numDays; day++) {
           const dateObj = new Date(Date.UTC(year, month0, day));
           const isWeekend = dateObj.getUTCDay() === 0 || dateObj.getUTCDay() === 6;
-          const alloc = allocByDay.get(day);
-          const hours = alloc ? alloc[posIdx] : undefined;
+          const dayAlloc = allocByDay.get(day);
+          const hours = dayAlloc ? dayAlloc.alloc[posIdx] : undefined;
           if (hours) {
             dayCode[day] = 'Я';
             dayHours[day] = hours;
@@ -648,6 +658,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
             dayCode[day] = 'В';
             weekendDays++;
           }
+          if (posIdx === 0 && dayAlloc) monthOvertime += dayAlloc.overtime;
         }
 
         const codeRow = sheet.getRow(rowNum);
@@ -656,10 +667,11 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         sheet.mergeCells(rowNum, 1, rowNum + 1, 1);
         sheet.getCell(rowNum, 1).value = posIdx === 0 ? idx + 1 : null;
         sheet.mergeCells(rowNum, 2, rowNum + 1, 2);
-        const posLabel = pos ? pos.name : '';
-        sheet.getCell(rowNum, 2).value = posLabel ? `${emp.full_name}, ${posLabel}` : emp.full_name;
+        sheet.getCell(rowNum, 2).value = emp.full_name;
         sheet.mergeCells(rowNum, 3, rowNum + 1, 3);
-        sheet.getCell(rowNum, 3).value = String(emp.id).padStart(6, '0');
+        sheet.getCell(rowNum, 3).value = pos ? pos.name : '';
+        sheet.mergeCells(rowNum, 4, rowNum + 1, 4);
+        sheet.getCell(rowNum, 4).value = String(emp.id).padStart(6, '0');
 
         let half1Worked = 0, half1Hours = 0, half2Worked = 0, half2Hours = 0;
         for (let day = 1; day <= numDays; day++) {
@@ -687,7 +699,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         };
         setMerged(COL_DAYS, monthDaysWorked || null);
         setMerged(COL_HOURS, monthHours || null);
-        setMerged(COL_OVERTIME, posIdx > 0 ? (monthHours || null) : null);
+        setMerged(COL_OVERTIME, posIdx === 0 ? (monthOvertime || null) : null);
         setMerged(COL_NIGHT, night ? (monthHours || null) : null);
         setMerged(COL_WEEKEND_H, null);
         setMerged(COL_ABSENCE, null);

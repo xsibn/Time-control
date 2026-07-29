@@ -47,6 +47,18 @@
     color: white; font-weight: 600; cursor: pointer; font-size: 13px;
   }
   .head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .employee-search {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 14px 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border, #2a3040);
+    background: var(--panel, #12151f);
+    color: inherit;
+    font-size: 14px;
+  }
+  .employee-search:focus { outline: none; border-color: #5b8cff; }
   .btn-add {
     padding: 9px 16px; border-radius: 10px; border: none; background: var(--accent);
     color: white; font-weight: 600; cursor: pointer; font-size: 13px;
@@ -147,6 +159,8 @@
     <button class="btn-add" onclick="openAddModal()">+ Добавить сотрудника</button>
   </div>
 
+  <input type="text" id="employeeSearch" class="employee-search" placeholder="🔎 Поиск сотрудника по ФИО, логину или должности…" oninput="renderEmployeeRows()" />
+
   <table>
     <thead>
       <tr><th>ФИО</th><th>Логин</th><th>Должности</th><th>Статус</th><th>Действия</th></tr>
@@ -235,8 +249,22 @@ async function loadEmployees() {
   if (resp.status === 401 || resp.status === 403) { location.href = '/login.html'; return; }
   const employees = await resp.json();
   currentEmployees = employees;
+  renderEmployeeRows();
+}
+
+function renderEmployeeRows() {
+  const query = (document.getElementById('employeeSearch')?.value || '').trim().toLowerCase();
+  const filtered = !query ? currentEmployees : currentEmployees.filter(e => {
+    const haystack = [
+      e.full_name,
+      e.login,
+      ...(e.positions || []).map(p => p.name),
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+
   const rows = document.getElementById('rows');
-  rows.innerHTML = employees.map(e => `
+  rows.innerHTML = filtered.map(e => `
     <tr>
       <td>${escapeHtml(e.full_name)}</td>
       <td class="mono">${escapeHtml(e.login)}</td>
@@ -247,7 +275,9 @@ async function loadEmployees() {
         <button class="btn-small" onclick="toggleActive(${e.id}, ${e.active ? 0 : 1})">${e.active ? 'Отключить' : 'Включить'}</button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="5" style="color:#8a94ab;">Пока нет сотрудников — добавьте первого кнопкой выше</td></tr>';
+  `).join('') || (query
+    ? '<tr><td colspan="5" style="color:#8a94ab;">Ничего не найдено</td></tr>'
+    : '<tr><td colspan="5" style="color:#8a94ab;">Пока нет сотрудников — добавьте первого кнопкой выше</td></tr>');
 }
 
 async function toggleActive(id, active) {

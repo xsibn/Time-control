@@ -540,6 +540,27 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
       const perDate = hoursByEmployeeDate.get(emp.id);
       const positions = emp.positions && emp.positions.length ? emp.positions : [null];
 
+      // Для каждого дня считаем, сколько реально отработанных часов приходится
+      // на каждую должность: разносим фактическое время по порядку должностей
+      // (сначала основная, потом совмещаемые), не больше нормы (daily_hours)
+      // на должность. Если сотрудник ушёл раньше — следующим должностям
+      // достанется меньше часов или 0, а не фиксированное число "для галочки".
+      const allocByDay = new Map(); // dateKey -> [hours per position index]
+      for (let day = 1; day <= numDays; day++) {
+        const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const worked = perDate ? perDate.get(dateKey) : undefined;
+        if (worked === undefined) continue;
+        let remaining = worked;
+        const alloc = positions.map(pos => {
+          const hasCap = pos && pos.daily_hours !== null && pos.daily_hours !== undefined && pos.daily_hours !== '';
+          const cap = hasCap ? Number(pos.daily_hours) : Infinity;
+          const allocated = Math.max(0, Math.min(remaining, cap));
+          remaining -= allocated;
+          return allocated;
+        });
+        allocByDay.set(dateKey, alloc);
+      }
+
       positions.forEach((pos, posIdx) => {
         const row = sheet.getRow(rowNum++);
         row.getCell(1).value = idx + 1;
@@ -549,15 +570,10 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         const night = isNightSchedule(pos);
         for (let day = 1; day <= numDays; day++) {
           const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const worked = perDate ? perDate.get(dateKey) : undefined;
-          if (worked === undefined) continue; // в этот день у сотрудника не было завершённой смены
+          const alloc = allocByDay.get(dateKey);
+          if (!alloc) continue; // в этот день у сотрудника не было завершённой смены
 
-          // Основная (первая) должность — реально отработанные часы по отметкам QR.
-          // Дополнительные должности (совмещение) — заданные вручную часы в день,
-          // проставляются в те же дни, когда была смена.
-          const hours = posIdx === 0 ? worked : (pos && pos.daily_hours !== null && pos.daily_hours !== undefined ? pos.daily_hours : null);
-          if (hours === null) continue;
-
+          const hours = alloc[posIdx];
           const startCol = FIXED_COLS + 1 + (day - 1) * COLS_PER_DAY;
           row.getCell(night ? startCol + 1 : startCol).value = hours;
         }

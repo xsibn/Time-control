@@ -225,7 +225,7 @@ function formatPositions(positions) {
   if (!positions || !positions.length) return '<span style="color:var(--muted)">—</span>';
   return '<div class="pos-list">' + positions.map((p, i) => {
     const sched = (p.work_start || p.work_end) ? ` <span class="mono">${escapeHtml(p.work_start || '—')}–${escapeHtml(p.work_end || '—')}</span>` : '';
-    const hours = i > 0 && p.daily_hours ? ` · ${escapeHtml(p.daily_hours)} ч/день` : '';
+    const hours = p.daily_hours ? ` · ${escapeHtml(p.daily_hours)} ч/день` : '';
     return `<div class="${i === 0 ? 'pos-main' : 'pos-extra'}">${i === 0 ? '' : '＋ '}${escapeHtml(p.name)}${sched}${hours}</div>`;
   }).join('') + '</div>';
 }
@@ -282,10 +282,9 @@ function positionCardHtml(scope, idx, pos) {
           <input type="time" class="pos-end" value="${escapeHtml(pos.work_end || '')}" />
         </div>
       </div>
-      ${isMain ? '' : `
-      <label>Часы в день (для табеля)</label>
-      <input type="number" class="pos-hours" min="0" step="0.5" placeholder="Например, 4" value="${escapeHtml(pos.daily_hours != null ? pos.daily_hours : '')}" />
-      `}
+      <label>Часы в смену${isMain ? ' (переопределяет фактическое время прихода/ухода — например, 8 при графике с обедом)' : ' (для табеля)'}</label>
+      <input type="number" class="pos-hours" min="0" step="0.5" placeholder="${isMain ? 'Оставьте пустым — считать по факту' : 'Например, 4'}" value="${escapeHtml(pos.daily_hours != null ? pos.daily_hours : '')}" />
+      ${isMain ? '<div class="hint">Если не заполнить — часы считаются по факту приход/уход.</div>' : ''}
     </div>
   `;
 }

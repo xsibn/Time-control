@@ -204,12 +204,44 @@ function formatTime(ts) {
 function formatDate(ts) {
   return new Date(ts.replace(' ', 'T') + 'Z').toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
 }
-function formatDuration(inTs, outTs) {
+// Реальное отработанное время по отметкам (в часах, округлено вниз до целого).
+function rawWorkedHours(inTs, outTs) {
   const ms = new Date(outTs.replace(' ', 'T') + 'Z') - new Date(inTs.replace(' ', 'T') + 'Z');
-  const totalMin = Math.max(0, Math.round(ms / 60000));
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return `${h} ч ${String(m).padStart(2, '0')} мин`;
+  const totalMin = Math.max(0, Math.floor(ms / 60000));
+  return Math.floor(totalMin / 60);
+}
+
+// Формат числа часов без лишних нулей после точки (8, 4.5 и т.п.)
+function formatHoursNum(h) {
+  return Number.isInteger(h) ? String(h) : String(Math.round(h * 10) / 10);
+}
+
+// Колонка "Отработано": берём РЕАЛЬНОЕ время по отметкам приход/уход и
+// разносим его по должностям сотрудника по порядку (сначала основная, потом
+// совмещаемые), но не больше нормы (daily_hours) для каждой — так по закону
+// смена не может быть длиннее нормы на должность. Если у должности норма не
+// задана — ей отдаётся весь остаток фактического времени без ограничения.
+// Если сотрудник ушёл раньше — это сразу видно: последующим должностям
+// достанется меньше часов или 0, а не фиксированное число "для галочки".
+function formatDuration(emp, inTs, outTs) {
+  const positions = emp && Array.isArray(emp.positions) ? emp.positions.filter(p => p && p.name) : [];
+  const raw = rawWorkedHours(inTs, outTs);
+
+  if (!positions.length) {
+    return `${raw} ч`;
+  }
+
+  let remaining = raw;
+  const parts = positions.map(pos => {
+    const hasCap = pos.daily_hours !== null && pos.daily_hours !== undefined && pos.daily_hours !== '';
+    const cap = hasCap ? Number(pos.daily_hours) : Infinity;
+    const allocated = Math.max(0, Math.min(remaining, cap));
+    remaining -= allocated;
+    const label = formatHoursNum(allocated) + ' ч';
+    return positions.length > 1 ? `${label} (${escapeHtml(pos.name)})` : label;
+  });
+
+  return parts.join(' + ');
 }
 
 async function checkAuth() {
@@ -276,7 +308,7 @@ async function load() {
                 ${s.out ? formatTime(s.out.timestamp) : 'ещё на месте'}
                 ${s.out ? `<span class="cell-actions"><button class="icon-btn" title="Редактировать" onclick="openEditModal(${s.out.id})">✏️</button></span>` : ''}
               </td>
-              <td class="duration">${s.out ? formatDuration(s.in.timestamp, s.out.timestamp) : '—'}</td>
+              <td class="duration">${s.out ? formatDuration(s.employee, s.in.timestamp, s.out.timestamp) : '—'}</td>
             </tr>
           `).join('')}
         </tbody>

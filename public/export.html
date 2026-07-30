@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Экспорт — учёт времени</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0c0f16" />
+<link rel="icon" href="/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Учёт времени" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/css/theme.css" />
+<style>
+  body { margin: 0; padding: 0 0 60px; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; max-width: 62ch; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+
+  .panel-box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; margin-bottom: 18px;
+  }
+  .panel-box .panel-sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; margin-bottom: 14px; }
+
+  .period-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .period-tabs button {
+    font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+    padding: 7px 14px; border-radius: 999px;
+  }
+  .period-tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+  .period-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .period-row input[type="month"], .period-row input[type="date"], .period-row input[type="time"] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  .field-label { font-size: 12.5px; color: var(--muted); }
+  .dash { color: var(--muted); }
+
+  .actions-row { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+
+  .stat-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .stat-chip {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 16px; min-width: 130px;
+  }
+  .stat-chip .n { font-family: var(--font-mono); font-size: 19px; font-weight: 600; }
+  .stat-chip .l { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+  .preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .preview-head h2 { margin: 0; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 14px; font-size: 13.5px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mono); }
+  tr:last-child td { border-bottom: none; }
+  td.mono, th.mono { font-family: var(--font-mono); }
+  .night-flag { color: var(--accent-strong); font-size: 12px; }
+  .hint { color: var(--muted); font-size: 13px; padding: 20px 4px; text-align: center; }
+  .totals-table { margin-top: 10px; }
+
+  .msg { font-size: 13px; margin-left: 4px; }
+  .msg.ok { color: var(--green); }
+  .msg.error { color: var(--red); }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <a class="brand" href="/index.html">
+    <img class="mark" src="/icons/icon-192.png" alt="" />
+    <div><div class="name">Учёт времени</div><div class="who">экспорт в Excel</div></div>
+  </a>
+  <nav class="app-nav">
+    <a href="/admin.html">👤 Сотрудники</a>
+    <a href="/logs.html">📋 Журнал</a>
+    <a href="/export.html" class="current">📊 Экспорт</a>
+    <button class="logout-btn" onclick="logout()">Выйти</button>
+  </nav>
+</header>
+<div class="wrap">
+  <h1>Экспорт в Excel</h1>
+  <div class="sub">Выберите период, проверьте данные в превью ниже и скачайте табель (формат Т-12) вместе с подробным листом смен.</div>
+
+  <div class="panel-box">
+    <h2>Период</h2>
+    <div class="panel-sub">Оставьте пустым, чтобы выгрузить весь период целиком.</div>
+
+    <div class="period-tabs">
+      <button type="button" id="tabMonth" class="active" onclick="setPeriodMode('month')">По месяцу</button>
+      <button type="button" id="tabRange" onclick="setPeriodMode('range')">По датам</button>
+    </div>
+
+    <div class="period-row" id="periodMonthRow">
+      <span class="field-label">Месяц:</span>
+      <input type="month" id="periodMonth" oninput="loadPreview()" />
+    </div>
+    <div class="period-row" id="periodRangeRow" style="display:none;">
+      <span class="field-label">с</span>
+      <input type="date" id="periodFrom" oninput="loadPreview()" />
+      <span class="dash">—</span>
+      <span class="field-label">по</span>
+      <input type="date" id="periodTo" oninput="loadPreview()" />
+    </div>
+
+    <div class="actions-row">
+      <button class="btn btn-primary" onclick="downloadXlsx()">⬇ Скачать .xlsx</button>
+      <span class="field-label">Скачается файл ровно за период, показанный в превью ниже</span>
+    </div>
+  </div>
+
+  <div class="panel-box">
+    <h2>🌓 Границы дневной / ночной смены</h2>
+    <div class="panel-sub">По фактическому времени прихода определяется, дневная это смена или ночная — всё отработанное до ухода считается этим типом. Влияет и на превью, и на экспорт.</div>
+    <div class="period-row">
+      <span class="field-label">день с</span>
+      <input type="time" id="dayShiftStart" />
+      <span class="field-label">ночь с</span>
+      <input type="time" id="nightShiftStart" />
+      <button class="btn" type="button" onclick="saveShiftSettings()">Сохранить</button>
+      <span class="msg" id="shiftSettingsMsg"></span>
+    </div>
+  </div>
+
+  <div class="stat-strip" id="statStrip"></div>
+
+  <div class="preview-head">
+    <h2>Превью — сотрудники и смены</h2>
+  </div>
+  <div id="previewContent"><div class="hint">Загрузка…</div></div>
+
+  <div class="preview-head" style="margin-top:26px;">
+    <h2>Итого по сотрудникам</h2>
+  </div>
+  <div id="totalsContent"></div>
+</div>
+
+<script>
+async function checkAuth() {
+  const resp = await fetch('/api/auth/me');
+  if (!resp.ok) { location.href = '/login.html'; return false; }
+  const data = await resp.json();
+  if (data.role !== 'admin') { location.href = '/index.html'; return false; }
+  return true;
+}
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  location.href = '/login.html';
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+let periodMode = 'month';
+function setPeriodMode(mode) {
+  periodMode = mode;
+  document.getElementById('tabMonth').classList.toggle('active', mode === 'month');
+  document.getElementById('tabRange').classList.toggle('active', mode === 'range');
+  document.getElementById('periodMonthRow').style.display = mode === 'month' ? 'flex' : 'none';
+  document.getElementById('periodRangeRow').style.display = mode === 'range' ? 'flex' : 'none';
+  loadPreview();
+}
+
+function currentParams() {
+  const params = new URLSearchParams();
+  if (periodMode === 'month') {
+    const month = document.getElementById('periodMonth').value;
+    if (month) params.set('month', month);
+  } else {
+    const from = document.getElementById('periodFrom').value;
+    const to = document.getElementById('periodTo').value;
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+  }
+  return params;
+}
+
+function downloadXlsx() {
+  const params = currentParams();
+  params.set('_', Date.now());
+  window.open(`/api/export.xlsx?${params.toString()}`, '_blank');
+}
+
+async function loadShiftSettings() {
+  const resp = await fetch('/api/settings/shifts');
+  if (!resp.ok) return;
+  const data = await resp.json();
+  document.getElementById('dayShiftStart').value = data.day_shift_start;
+  document.getElementById('nightShiftStart').value = data.night_shift_start;
+}
+
+async function saveShiftSettings() {
+  const day_shift_start = document.getElementById('dayShiftStart').value;
+  const night_shift_start = document.getElementById('nightShiftStart').value;
+  const msg = document.getElementById('shiftSettingsMsg');
+  if (!day_shift_start || !night_shift_start) {
+    msg.textContent = 'Укажите оба времени';
+    msg.className = 'msg error';
+    return;
+  }
+  const resp = await fetch('/api/settings/shifts', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ day_shift_start, night_shift_start }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    msg.textContent = data.error || 'Не удалось сохранить';
+    msg.className = 'msg error';
+    return;
+  }
+  msg.textContent = 'Сохранено';
+  msg.className = 'msg ok';
+  setTimeout(() => { msg.textContent = ''; }, 2000);
+  loadPreview(); // границы сменились — день/ночь в превью нужно пересчитать
+}
+
+function formatHours(h) {
+  return (Math.round(h * 100) / 100).toString().replace('.', ',');
+}
+
+async function loadPreview() {
+  const params = currentParams();
+  const previewEl = document.getElementById('previewContent');
+  const totalsEl = document.getElementById('totalsContent');
+  const statEl = document.getElementById('statStrip');
+  const resp = await fetch(`/api/export-preview?${params.toString()}`);
+  if (!resp.ok) {
+    previewEl.innerHTML = '<div class="hint">Не удалось загрузить превью</div>';
+    totalsEl.innerHTML = '';
+    statEl.innerHTML = '';
+    return;
+  }
+  const data = await resp.json();
+
+  const totalHours = data.totals.reduce((sum, t) => sum + t.hours, 0);
+  const totalNight = data.totals.reduce((sum, t) => sum + t.night_hours, 0);
+  statEl.innerHTML = `
+    <div class="stat-chip"><div class="n">${data.rows.length}</div><div class="l">смен в превью</div></div>
+    <div class="stat-chip"><div class="n">${data.totals.length}</div><div class="l">сотрудников</div></div>
+    <div class="stat-chip"><div class="n">${formatHours(totalHours)}</div><div class="l">часов всего</div></div>
+    <div class="stat-chip"><div class="n">${formatHours(totalNight)}</div><div class="l">из них ночных</div></div>
+    ${data.openShifts ? `<div class="stat-chip"><div class="n">${data.openShifts}</div><div class="l">незакрытых смен (не в табеле)</div></div>` : ''}
+  `;
+
+  if (!data.rows.length) {
+    previewEl.innerHTML = '<div class="hint">За выбранный период завершённых смен нет</div>';
+  } else {
+    previewEl.innerHTML = `
+      <div class="table-card"><table>
+        <thead><tr><th>ФИО</th><th class="mono">Дата</th><th class="mono">Приход</th><th class="mono">Уход</th><th class="mono">Часов</th><th>Тип</th></tr></thead>
+        <tbody>
+          ${data.rows.map(r => `
+            <tr>
+              <td>${escapeHtml(r.full_name)}</td>
+              <td class="mono">${r.date}</td>
+              <td class="mono">${r.time_in}</td>
+              <td class="mono">${r.time_out}</td>
+              <td class="mono">${formatHours(r.hours)}</td>
+              <td>${r.is_night ? '<span class="night-flag">🌙 ночная</span>' : 'дневная'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table></div>
+    `;
+  }
+
+  if (!data.totals.length) {
+    totalsEl.innerHTML = '<div class="hint">Нет данных для итогов за этот период</div>';
+  } else {
+    totalsEl.innerHTML = `
+      <div class="table-card totals-table"><table>
+        <thead><tr><th>ФИО</th><th class="mono">Смен</th><th class="mono">Часов</th><th class="mono">Ночных</th></tr></thead>
+        <tbody>
+          ${data.totals.map(t => `
+            <tr>
+              <td>${escapeHtml(t.full_name)}</td>
+              <td class="mono">${t.days}</td>
+              <td class="mono">${formatHours(t.hours)}</td>
+              <td class="mono">${formatHours(t.night_hours)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table></div>
+    `;
+  }
+}
+
+(async () => {
+  document.getElementById('periodMonth').value = currentMonthValue();
+  if (await checkAuth()) {
+    loadShiftSettings();
+    loadPreview();
+  }
+})();
+</script>
+</body>
+</html>

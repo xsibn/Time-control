@@ -22,12 +22,6 @@
   .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
   h1 { font-size: 22px; margin-bottom: 4px; }
   .sub { color: var(--muted); margin-bottom: 24px; font-size: 14px; max-width: 62ch; }
-  .export-row {
-    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-    padding: 14px 16px; margin-bottom: 24px;
-  }
-  .export-label { font-size: 13px; color: var(--muted); }
   .export-dash { color: var(--muted); }
   .export-row input[type="date"] {
     background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
@@ -165,35 +159,17 @@
 <body>
 <header class="app-header">
   <a class="brand" href="/index.html">
-    <div class="mark">УВ</div>
+    <img class="mark" src="/icons/icon-192.png" alt="" />
     <div><div class="name">Учёт времени</div><div class="who">админ-панель</div></div>
   </a>
   <nav class="app-nav">
     <a href="/admin.html" class="current">👤 Сотрудники</a>
     <a href="/logs.html">📋 Журнал</a>
+    <a href="/export.html">📊 Экспорт</a>
     <button class="logout-btn" onclick="logout()">Выйти</button>
   </nav>
 </header>
 <div class="wrap">
-  <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank" onsubmit="document.getElementById('exportCacheBust').value = Date.now();">
-    <span class="export-label">📊 Экспорт в Excel за месяц:</span>
-    <input type="month" name="month" id="exportMonth" />
-    <input type="hidden" name="_" id="exportCacheBust" value="" />
-    <button type="submit">Скачать</button>
-    <span class="export-label">(оставьте пустым — выгрузится весь период)</span>
-  </form>
-
-  <div class="export-row" id="shiftSettingsRow">
-    <span class="export-label">🌓 Границы смен для экспорта:</span>
-    <span class="export-label">день с</span>
-    <input type="time" id="dayShiftStart" />
-    <span class="export-label">ночь с</span>
-    <input type="time" id="nightShiftStart" />
-    <button type="button" onclick="saveShiftSettings()">Сохранить</button>
-    <span class="export-label" id="shiftSettingsMsg"></span>
-    <span class="export-label">(по фактическому времени прихода определяется, дневная это смена или ночная — далее всё отработанное до ухода считается этим типом)</span>
-  </div>
-
   <div class="head-row">
     <div>
       <h1>Сотрудники</h1>
@@ -675,44 +651,8 @@ async function applyRangeCode() {
   await loadCodesForMonth();
 }
 
-// --- Границы дневной/ночной смены (для экспорта в Excel) ---
-
-async function loadShiftSettings() {
-  const resp = await fetch('/api/settings/shifts');
-  if (!resp.ok) return;
-  const data = await resp.json();
-  document.getElementById('dayShiftStart').value = data.day_shift_start;
-  document.getElementById('nightShiftStart').value = data.night_shift_start;
-}
-
-async function saveShiftSettings() {
-  const day_shift_start = document.getElementById('dayShiftStart').value;
-  const night_shift_start = document.getElementById('nightShiftStart').value;
-  const msg = document.getElementById('shiftSettingsMsg');
-  if (!day_shift_start || !night_shift_start) {
-    msg.textContent = 'Укажите оба времени';
-    msg.style.color = 'var(--red, #ff5470)';
-    return;
-  }
-  const resp = await fetch('/api/settings/shifts', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ day_shift_start, night_shift_start }),
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    msg.textContent = data.error || 'Не удалось сохранить';
-    msg.style.color = 'var(--red, #ff5470)';
-    return;
-  }
-  msg.textContent = 'Сохранено';
-  msg.style.color = 'var(--green, #34c77b)';
-  setTimeout(() => { msg.textContent = ''; }, 2000);
-}
-
 (async () => {
-  document.getElementById('exportMonth').value = currentMonthValue();
-  if (await checkAuth()) { loadEmployees(); loadShiftSettings(); }
+  if (await checkAuth()) { loadEmployees(); }
 })();
 </script>
 <script>

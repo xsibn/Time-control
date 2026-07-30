@@ -24,10 +24,8 @@
     content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
     background: linear-gradient(90deg, var(--accent), var(--accent-strong));
   }
-  .mark { width: 40px; height: 40px; border-radius: 11px; margin: 0 auto 16px;
-    background: linear-gradient(155deg, var(--accent-strong), var(--accent));
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-mono); font-weight: 700; font-size: 16px; color: var(--accent-ink); }
+  .mark { width: 48px; height: 48px; border-radius: 13px; margin: 0 auto 16px;
+    display: block; object-fit: cover; }
   h1 { font-size: 15px; margin: 0 0 22px; text-align: center; color: var(--text); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   .tabs { display: flex; gap: 8px; margin-bottom: 20px; background: var(--bg); padding: 4px; border-radius: 12px; border: 1px solid var(--border); }
   .tabs button {
@@ -52,7 +50,7 @@
 </head>
 <body>
   <div class="box">
-    <div class="mark">УВ</div>
+    <img class="mark" src="/icons/icon-192.png" alt="" />
     <h1>Учёт рабочего времени</h1>
     <form id="loginForm" class="active">
       <div>

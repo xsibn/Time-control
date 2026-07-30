@@ -454,6 +454,51 @@ const HHMM_RE = /^([0-1]?\d|2[0-3]):([0-5]\d)$/;
 const DEFAULT_DAY_SHIFT_START = '07:00';
 const DEFAULT_NIGHT_SHIFT_START = '20:00';
 
+// Реальный часовой пояс, в котором физически находятся сотрудники/охрана.
+// Отметки прихода/ухода хранятся в БД в чистом UTC (см. normalizeTimestamp /
+// now.toISOString()), а в браузере отображаются через toLocaleTimeString —
+// то есть в ЛОКАЛЬНОМ часовом поясе устройства пользователя. Чтобы день/ночь,
+// даты смен и границы табеля на сервере совпадали с тем, что видит админ на
+// экране, всю "человеческую" интерпретацию времени на сервере нужно считать
+// в этом же часовом поясе, а не в UTC и не в часовом поясе машины с сервером.
+const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Europe/Moscow';
+
+// Разбирает хранимый UTC-таймстамп ('YYYY-MM-DD HH:MM:SS') на компоненты,
+// вычисленные в APP_TIMEZONE — год/месяц/день/час/минута и готовый ключ
+// даты 'YYYY-MM-DD'.
+function localPartsFromTimestamp(timestamp, timeZone = APP_TIMEZONE) {
+  const d = new Date(timestamp.replace(' ', 'T') + 'Z');
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const parts = {};
+  for (const p of fmt.formatToParts(d)) parts[p.type] = p.value;
+  let hour = Number(parts.hour);
+  if (hour === 24) hour = 0; // некоторые окружения отдают '24' для полуночи
+  return {
+    dateKey: `${parts.year}-${parts.month}-${parts.day}`,
+    year: Number(parts.year),
+    month: Number(parts.month), // 1-12
+    day: Number(parts.day),
+    hour,
+    minute: Number(parts.minute),
+  };
+}
+
+function localTimeHHMM(timestamp, timeZone = APP_TIMEZONE) {
+  const { hour, minute } = localPartsFromTimestamp(timestamp, timeZone);
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+// Смещает календарную дату 'YYYY-MM-DD' на deltaDays суток (для расширения
+// диапазона выборки из БД перед точной локальной фильтрацией — см. ниже).
+function shiftDateStr(dateStr, deltaDays) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
+}
+
 function getShiftSettings() {
   const day = db.getSetting('day_shift_start');
   const night = db.getSetting('night_shift_start');
@@ -472,11 +517,12 @@ function hhmmToMinutes(str) {
 // прихода и настроенным администратором границам дневной/ночной смены.
 // Дневная зона — [day_shift_start, night_shift_start), ночная — всё
 // остальное время суток (включая переход через полночь). Час/минута
-// берутся из timestamp как есть (без часового пояса — так же, как и
-// остальная часть приложения трактует хранимое время).
+// берутся из timestamp в APP_TIMEZONE — том же часовом поясе, в котором
+// админ вводит границы смен и в котором видит время на экране (браузер
+// показывает его в локальном часовом поясе устройства).
 function isNightCheckIn(timestamp, settings) {
-  const d = new Date(timestamp.replace(' ', 'T') + 'Z');
-  const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const { hour, minute } = localPartsFromTimestamp(timestamp);
+  const minutes = hour * 60 + minute;
   const dayStart = hhmmToMinutes(settings.day_shift_start);
   const nightStart = hhmmToMinutes(settings.night_shift_start);
   if (dayStart <= nightStart) {
@@ -561,9 +607,12 @@ app.post('/api/day-codes/range', requireAuth('admin'), (req, res) => {
 
 // --- Экспорт данных в Excel (только для админа) ---
 
-app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
+// Разбирает query-параметры from/to/month в единый диапазон дат
+// 'YYYY-MM-DD' (или null, если не задано) — используется и превью-выгрузкой,
+// и самим xlsx-экспортом, чтобы они всегда считали за один и тот же период.
+function resolveExportRange(query) {
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-  let { from, to, month } = req.query || {};
+  let { from, to, month } = query || {};
   const monthMatch = /^(\d{4})-(\d{2})$/.exec(month || '');
   if (monthMatch) {
     const y = Number(monthMatch[1]);
@@ -576,12 +625,85 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     to = DATE_RE.test(to || '') ? to : null;
   }
   if (from && to && from > to) { [from, to] = [to, from]; }
+  return { from, to };
+}
+
+// Те же отметки, что уйдут в xlsx (с точной локальной фильтрацией по
+// APP_TIMEZONE — см. shiftDateStr/localPartsFromTimestamp выше).
+function loadLogsForRange(from, to) {
+  const queryFrom = from ? shiftDateStr(from, -1) : null;
+  const queryTo = to ? shiftDateStr(to, 1) : null;
+  const raw = db.listAllLogsForExport(queryFrom, queryTo);
+  if (!from && !to) return raw;
+  return raw.filter(l => {
+    const dateKey = localPartsFromTimestamp(l.timestamp).dateKey;
+    if (from && dateKey < from) return false;
+    if (to && dateKey > to) return false;
+    return true;
+  });
+}
+
+// Компактная сводка для предпросмотра на странице экспорта — считается по
+// тем же функциям (pairShiftsByEmployee, isNightCheckIn), что и сам xlsx,
+// чтобы превью 1-в-1 совпадало с итоговым файлом.
+function computeExportSummary(from, to) {
+  const logs = loadLogsForRange(from, to);
+  const shiftSettings = getShiftSettings();
+  const shifts = pairShiftsByEmployee(logs);
+
+  const rows = shifts
+    .filter(s => s.out)
+    .map(s => {
+      const inLocal = localPartsFromTimestamp(s.in.timestamp);
+      const inDate = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
+      const outDate = new Date(s.out.timestamp.replace(' ', 'T') + 'Z');
+      return {
+        employee_id: s.employee_id,
+        full_name: s.full_name,
+        date: inLocal.dateKey,
+        time_in: localTimeHHMM(s.in.timestamp),
+        time_out: localTimeHHMM(s.out.timestamp),
+        hours: Math.round(((outDate - inDate) / 3600000) * 100) / 100,
+        is_night: isNightCheckIn(s.in.timestamp, shiftSettings),
+      };
+    })
+    .sort((a, b) => a.full_name.localeCompare(b.full_name, 'ru') || a.date.localeCompare(b.date));
+
+  const openShifts = shifts.filter(s => !s.out).length;
+
+  const byEmployee = new Map();
+  for (const r of rows) {
+    if (!byEmployee.has(r.employee_id)) {
+      byEmployee.set(r.employee_id, { employee_id: r.employee_id, full_name: r.full_name, days: 0, hours: 0, night_hours: 0 });
+    }
+    const t = byEmployee.get(r.employee_id);
+    t.days += 1;
+    t.hours += r.hours;
+    if (r.is_night) t.night_hours += r.hours;
+  }
+  const totals = [...byEmployee.values()]
+    .map(t => ({ ...t, hours: Math.round(t.hours * 100) / 100, night_hours: Math.round(t.night_hours * 100) / 100 }))
+    .sort((a, b) => a.full_name.localeCompare(b.full_name, 'ru'));
+
+  return { rows, totals, openShifts };
+}
+
+// Предпросмотр данных для страницы экспорта — те же период/логика, что и
+// у файла /api/export.xlsx, но в виде JSON для отображения таблицей на странице.
+app.get('/api/export-preview', requireAuth('admin'), (req, res) => {
+  const { from, to } = resolveExportRange(req.query || {});
+  const { rows, totals, openShifts } = computeExportSummary(from, to);
+  res.json({ from, to, rows, totals, openShifts });
+});
+
+app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
+  const { from, to } = resolveExportRange(req.query || {});
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Учёт рабочего времени';
   workbook.created = new Date();
 
-  const allLogsForSummary = db.listAllLogsForExport(from, to);
+  const allLogsForSummary = loadLogsForRange(from, to);
   const summaryShifts = pairShiftsByEmployee(allLogsForSummary);
 
   // --- Листы "Табель" (по одному на месяц), формат как в образце заказчика:
@@ -608,7 +730,7 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     if (!s.out) continue; // смена ещё не завершена — не включаем в табель
     const inDate = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
     const outDate = new Date(s.out.timestamp.replace(' ', 'T') + 'Z');
-    const dateKey = inDate.toISOString().slice(0, 10);
+    const dateKey = localPartsFromTimestamp(s.in.timestamp).dateKey;
     const hours = Math.floor((outDate - inDate) / 3600000);
     if (!hoursByEmployeeDate.has(s.employee_id)) hoursByEmployeeDate.set(s.employee_id, new Map());
     const perDate = hoursByEmployeeDate.get(s.employee_id);
@@ -637,12 +759,12 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     }
   } else {
     for (const s of summaryShifts) {
-      const d = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
-      monthKeys.add(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+      const { year, month } = localPartsFromTimestamp(s.in.timestamp);
+      monthKeys.add(`${year}-${String(month).padStart(2, '0')}`);
     }
     if (!monthKeys.size) {
-      const now = new Date();
-      monthKeys.add(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`);
+      const now = localPartsFromTimestamp(new Date().toISOString().slice(0, 19).replace('T', ' '));
+      monthKeys.add(`${now.year}-${String(now.month).padStart(2, '0')}`);
     }
   }
 
@@ -918,12 +1040,13 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
     const inDate = new Date(s.in.timestamp.replace(' ', 'T') + 'Z');
     const outDate = s.out ? new Date(s.out.timestamp.replace(' ', 'T') + 'Z') : null;
     const hours = outDate ? Math.round(((outDate - inDate) / 3600000) * 100) / 100 : '';
+    const inLocal = localPartsFromTimestamp(s.in.timestamp);
     shiftsSheet.addRow({
       full_name: s.full_name,
       login: s.login,
-      date: inDate.toISOString().slice(0, 10),
-      time_in: inDate.toISOString().slice(11, 16),
-      time_out: outDate ? outDate.toISOString().slice(11, 16) : 'ещё на месте',
+      date: inLocal.dateKey,
+      time_in: `${String(inLocal.hour).padStart(2, '0')}:${String(inLocal.minute).padStart(2, '0')}`,
+      time_out: outDate ? localTimeHHMM(s.out.timestamp) : 'ещё на месте',
       hours,
     });
   }
@@ -932,20 +1055,23 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
   const logsSheet = workbook.addWorksheet('Отметки (сырые)');
   logsSheet.getCell('A1').value = `Период:${periodLabel}`;
   logsSheet.getCell('A1').font = { italic: true, color: { argb: 'FF888888' } };
-  logsSheet.getRow(2).values = ['ФИО', 'Логин', 'Тип', 'Время (UTC)'];
+  logsSheet.getRow(2).values = ['ФИО', 'Логин', 'Тип', 'Время (UTC)', `Время (${APP_TIMEZONE})`];
   logsSheet.getRow(2).font = { bold: true };
   logsSheet.columns = [
     { key: 'full_name', width: 30 },
     { key: 'login', width: 18 },
     { key: 'type', width: 10 },
     { key: 'timestamp', width: 20 },
+    { key: 'local', width: 20 },
   ];
   for (const log of allLogs) {
+    const local = localPartsFromTimestamp(log.timestamp);
     logsSheet.addRow({
       full_name: log.full_name,
       login: log.login,
       type: log.type === 'in' ? 'приход' : 'уход',
       timestamp: log.timestamp,
+      local: `${local.dateKey} ${String(local.hour).padStart(2, '0')}:${String(local.minute).padStart(2, '0')}`,
     });
   }
 

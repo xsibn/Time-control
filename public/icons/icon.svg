@@ -1,12 +1,12 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#161d2e"/>
-      <stop offset="100%" stop-color="#0f1420"/>
+      <stop offset="0%" stop-color="#1c2230"/>
+      <stop offset="100%" stop-color="#0c0f16"/>
     </linearGradient>
     <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#6ea8ff"/>
-      <stop offset="100%" stop-color="#4f8cff"/>
+      <stop offset="0%" stop-color="#ffc36b"/>
+      <stop offset="100%" stop-color="#f0a341"/>
     </linearGradient>
   </defs>
 
@@ -14,10 +14,10 @@
 
   <circle cx="256" cy="256" r="158" fill="none" stroke="url(#ring)" stroke-width="22"/>
 
-  <line x1="256" y1="256" x2="256" y2="150" stroke="#eef1f8" stroke-width="18" stroke-linecap="round"/>
-  <line x1="256" y1="256" x2="330" y2="292" stroke="#eef1f8" stroke-width="18" stroke-linecap="round"/>
-  <circle cx="256" cy="256" r="14" fill="#eef1f8"/>
+  <line x1="256" y1="256" x2="256" y2="150" stroke="#eef1f6" stroke-width="18" stroke-linecap="round"/>
+  <line x1="256" y1="256" x2="330" y2="292" stroke="#eef1f6" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="14" fill="#eef1f6"/>
 
-  <circle cx="368" cy="368" r="72" fill="#0f1420" stroke="#34c77b" stroke-width="10"/>
-  <path d="M338 368 L360 390 L400 344" fill="none" stroke="#34c77b" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="368" cy="368" r="72" fill="#0c0f16" stroke="#3ecf8e" stroke-width="10"/>
+  <path d="M338 368 L360 390 L400 344" fill="none" stroke="#3ecf8e" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

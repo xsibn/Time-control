@@ -62,9 +62,7 @@ body {
 }
 .app-header .brand .mark {
   width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
-  background: linear-gradient(155deg, var(--accent-strong), var(--accent));
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-mono); font-weight: 700; font-size: 13px; color: var(--accent-ink);
+  display: block; object-fit: cover;
 }
 .app-header .brand .name {
   font-weight: 700; font-size: 13.5px; letter-spacing: 0.02em; line-height: 1.15;

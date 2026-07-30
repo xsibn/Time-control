@@ -49,21 +49,6 @@
   .time-out.pending { color: var(--muted); font-weight: 400; font-style: italic; }
   .duration { color: var(--muted); }
   .refresh { color: var(--muted); font-size: 12px; margin-top: 16px; text-align: center; }
-  .export-row {
-    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-    padding: 14px 16px; margin: 12px 0 20px;
-  }
-  .export-label { font-size: 13px; color: var(--muted); }
-  .export-dash { color: var(--muted); }
-  .export-row input[type="date"] {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit;
-  }
-  .export-row button {
-    padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
-    color: var(--accent-ink); font-weight: 600; cursor: pointer; font-size: 13px;
-  }
   .add-row {
     display: flex; justify-content: flex-end; margin: 0 0 4px;
   }
@@ -146,27 +131,18 @@
 <body>
 <header class="app-header">
   <a class="brand" href="/index.html">
-    <div class="mark">УВ</div>
+    <img class="mark" src="/icons/icon-192.png" alt="" />
     <div><div class="name">Учёт времени</div><div class="who">журнал смен</div></div>
   </a>
   <nav class="app-nav">
     <a href="/admin.html">👤 Сотрудники</a>
     <a href="/logs.html" class="current">📋 Журнал</a>
+    <a href="/export.html">📊 Экспорт</a>
     <button class="logout-btn" onclick="logout()">Выйти</button>
   </nav>
 </header>
 <div class="wrap">
   <h1>Журнал прихода / ухода</h1>
-
-  <form class="export-row" action="/api/export.xlsx" method="GET" target="_blank" onsubmit="document.getElementById('exportCacheBust').value = Date.now();">
-    <span class="export-label">📊 Экспорт в Excel за период:</span>
-    <input type="date" name="from" />
-    <span class="export-dash">—</span>
-    <input type="date" name="to" />
-    <input type="hidden" name="_" id="exportCacheBust" value="" />
-    <button type="submit">Скачать</button>
-    <span class="export-label">(оставьте пустым — весь период)</span>
-  </form>
 
   <div class="add-row">
     <button class="add-btn" onclick="openMarksModal()">🕒 Отметки приход/уход</button>

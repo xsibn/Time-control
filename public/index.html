@@ -21,10 +21,8 @@
   }
   .top-mark { display: flex; flex-direction: column; align-items: center; margin-bottom: 26px; }
   .top-mark .mark {
-    width: 44px; height: 44px; border-radius: 12px; margin-bottom: 14px;
-    background: linear-gradient(155deg, var(--accent-strong), var(--accent));
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-mono); font-weight: 700; font-size: 18px; color: var(--accent-ink);
+    width: 52px; height: 52px; border-radius: 14px; margin-bottom: 14px;
+    display: block; object-fit: cover;
   }
   h1 {
     font-size: 15px; margin: 0 0 6px; text-align: center; color: var(--text); font-weight: 700;
@@ -85,7 +83,7 @@
 </head>
 <body>
   <div class="top-mark">
-    <div class="mark">УВ</div>
+    <img class="mark" src="/icons/icon-192.png" alt="" />
     <h1>Учёт рабочего времени</h1>
     <div class="who" id="who"></div>
   </div>
@@ -164,7 +162,7 @@ async function init() {
         <div class="body"><div class="t">Журнал</div>
         <div class="d">Приход, уход и отработанное время по сменам</div></div>
       </a>
-      <a class="badge-card tone-green" href="/admin.html">
+      <a class="badge-card tone-green" href="/export.html">
         <div class="tab"></div><div class="glyph">📊</div>
         <div class="body"><div class="t">Экспорт в Excel</div>
         <div class="d">Выбрать период и скачать таблицу</div></div>

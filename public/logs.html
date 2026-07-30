@@ -40,7 +40,7 @@
     color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.4px; margin: 18px 0 8px;
   }
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; background: transparent; }
   th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
   th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
   tr:last-child td { border-bottom: none; }
@@ -352,6 +352,7 @@ function renderLogs() {
   content.innerHTML = Object.entries(groups).map(([date, shifts]) => `
     <div class="day-group">
       <div class="day-title">${date}</div>
+      <div class="table-scroll">
       <table>
         <thead><tr><th>Сотрудник</th><th>Приход</th><th>Уход</th><th>Отработано</th></tr></thead>
         <tbody>
@@ -373,6 +374,7 @@ function renderLogs() {
           `).join('')}
         </tbody>
       </table>
+      </div>
     </div>
   `).join('');
 }

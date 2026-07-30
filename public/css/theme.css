@@ -108,11 +108,12 @@ body {
 .shell { max-width: 960px; margin: 0 auto; padding: 0 18px 60px; }
 
 /* ---------- table dressing (structure only, not modals) ---------- */
-.table-card {
+.table-card, .table-scroll {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  overflow: hidden;
+  overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch;
 }
-.table-card table { width: 100%; border-collapse: collapse; background: transparent; }
+.table-scroll { background: transparent; }
+.table-card table, .table-scroll table { width: 100%; border-collapse: collapse; background: transparent; }
 .table-card thead th {
   position: sticky; top: 0; background: var(--panel-2);
   font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em;
@@ -145,3 +146,40 @@ body {
 
 /* ---------- utility ---------- */
 .mono { font-family: var(--font-mono); }
+
+/* ============================================================
+   Мобильная адаптация (узкие экраны телефонов)
+   ============================================================ */
+@media (max-width: 640px) {
+  .app-header {
+    flex-wrap: wrap; row-gap: 10px; padding: 10px 14px;
+  }
+  .app-header .brand { flex: 1 1 100%; }
+  .app-nav {
+    flex: 1 1 100%; justify-content: flex-start; gap: 6px; row-gap: 8px;
+  }
+  .app-nav a, .app-nav button {
+    font-size: 12px; padding: 7px 11px; gap: 4px;
+  }
+
+  .shell, .page-head { padding-left: 14px; padding-right: 14px; }
+  .page-head h1 { font-size: 19px; }
+  .page-head .sub { font-size: 13px; }
+
+  .btn { font-size: 12.5px; padding: 8px 13px; }
+
+  .badge-grid { max-width: 100%; }
+  .badge-card { padding: 14px 15px 14px 13px; gap: 11px; }
+  .badge-card .glyph { width: 34px; height: 34px; font-size: 16px; }
+  .badge-card .t { font-size: 14px; }
+  .badge-card .d { font-size: 12px; }
+
+  /* Таблицы не сжимаются в кашу — вместо этого горизонтальный скролл */
+  .table-card table, .table-scroll table { min-width: 560px; }
+}
+
+@media (max-width: 420px) {
+  .app-header .brand .name { font-size: 12.5px; }
+  .app-header .brand .who { font-size: 10px; }
+  .eyebrow { font-size: 10.5px; }
+}

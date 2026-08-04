@@ -166,7 +166,7 @@ app.post('/api/auth/change-password', requireAuth(), (req, res) => {
 // --- Сотрудники (только для охраны/админа) ---
 
 app.get('/api/employees', requireAuth('admin'), (req, res) => {
-  res.json(db.listEmployees());
+  res.json(db.listEmployees().map(u => ({ ...u, category: db.employeeCategory(u) })));
 });
 
 // Аккаунты сотрудников теперь создаёт только администратор — публичной
@@ -448,6 +448,21 @@ const TIMESHEET_CODES = [
   { code: 'В', label: 'Выходной (вручную)' },
 ];
 
+// Типовые смены для меню «Графики» (плановый график на месяц вперёд).
+// Как и с кодами табеля, админ может ввести и произвольное обозначение
+// (до 4 символов) — например, время смены.
+const SHIFT_CODES = [
+  { code: 'Д', label: 'Дневная смена' },
+  { code: 'Н', label: 'Ночная смена' },
+  { code: 'В', label: 'Выходной' },
+];
+
+const SCHEDULE_CATEGORIES = [
+  { key: 'staff', label: 'Сотрудники' },
+  { key: 'guard', label: 'Охранники' },
+  { key: 'outsource', label: 'Аутсорс' },
+];
+
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-ZА-Я0-9]{1,4}$/i;
 const HHMM_RE = /^([0-1]?\d|2[0-3]):([0-5]\d)$/;
@@ -567,6 +582,20 @@ app.get('/api/day-codes', requireAuth('admin'), (req, res) => {
   res.json(list);
 });
 
+// Все сотрудники + их коды табеля за месяц одним запросом — для табличного
+// интерфейса «Табель-коды» (аналог /api/schedule, но по всем сотрудникам
+// сразу, без разбивки по категориям — коды табеля общие для всех).
+app.get('/api/timesheet-codes-grid', requireAuth('admin'), (req, res) => {
+  const { month } = req.query || {};
+  const m = /^(\d{4})-(\d{2})$/.exec(month || '');
+  if (!m) return res.status(400).json({ error: 'Укажите месяц в формате YYYY-MM' });
+  const year = Number(m[1]);
+  const month1 = Number(m[2]);
+  const employees = db.listEmployees();
+  const codes = db.listDayCodesForMonth(year, month1);
+  res.json({ employees, codes });
+});
+
 // Установить/снять код на один день.
 app.post('/api/day-codes', requireAuth('admin'), (req, res) => {
   const { employee_id, date, code } = req.body || {};
@@ -599,6 +628,74 @@ app.post('/api/day-codes/range', requireAuth('admin'), (req, res) => {
   }
   try {
     db.setDayCodeRange(employee.id, from, to, code);
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Не удалось применить период' });
+  }
+  res.json({ ok: true });
+});
+
+// --- Графики работы (отдельное меню: план смен по категориям —
+// сотрудники/охранники/аутсорс, составляет админ заранее на месяц) ---
+
+app.get('/api/schedule-categories', requireAuth('admin'), (req, res) => {
+  res.json(SCHEDULE_CATEGORIES);
+});
+
+app.get('/api/schedule-codes', requireAuth('admin'), (req, res) => {
+  res.json(SHIFT_CODES);
+});
+
+const CATEGORY_KEYS = SCHEDULE_CATEGORIES.map(c => c.key);
+
+// Список сотрудников категории + их смены за месяц — то, что нужно странице
+// «Графики», чтобы отрисовать таблицу (строки — люди, столбцы — дни месяца).
+app.get('/api/schedule', requireAuth('admin'), (req, res) => {
+  const { month, category } = req.query || {};
+  const m = /^(\d{4})-(\d{2})$/.exec(month || '');
+  if (!m) return res.status(400).json({ error: 'Укажите месяц в формате YYYY-MM' });
+  if (!CATEGORY_KEYS.includes(category)) {
+    return res.status(400).json({ error: 'Некорректная категория' });
+  }
+  const year = Number(m[1]);
+  const month1 = Number(m[2]);
+  const employees = db.listEmployeesByCategory(category);
+  const employeeIds = new Set(employees.map(e => e.id));
+  const shifts = db.listScheduleForMonth(year, month1).filter(s => employeeIds.has(s.employee_id));
+  res.json({ employees, shifts });
+});
+
+// Установить/снять смену на один день.
+app.post('/api/schedule', requireAuth('admin'), (req, res) => {
+  const { employee_id, date, shift } = req.body || {};
+  const employee = db.getUserById(employee_id);
+  if (!employee || employee.role !== 'employee') {
+    return res.status(404).json({ error: 'Сотрудник не найден' });
+  }
+  if (!DATE_ONLY_RE.test(date || '')) {
+    return res.status(400).json({ error: 'Некорректная дата' });
+  }
+  if (shift && !CODE_RE.test(shift)) {
+    return res.status(400).json({ error: 'Смена — до 4 букв/цифр' });
+  }
+  const rec = db.setScheduleShift(employee.id, date, shift || '');
+  res.json(rec || { employee_id: employee.id, date, shift: '' });
+});
+
+// Проставить одну смену сразу на диапазон дат (например, вахта на 2 недели).
+app.post('/api/schedule/range', requireAuth('admin'), (req, res) => {
+  const { employee_id, from, to, shift } = req.body || {};
+  const employee = db.getUserById(employee_id);
+  if (!employee || employee.role !== 'employee') {
+    return res.status(404).json({ error: 'Сотрудник не найден' });
+  }
+  if (!DATE_ONLY_RE.test(from || '') || !DATE_ONLY_RE.test(to || '')) {
+    return res.status(400).json({ error: 'Укажите даты периода' });
+  }
+  if (!shift || !CODE_RE.test(shift)) {
+    return res.status(400).json({ error: 'Укажите смену — до 4 букв/цифр' });
+  }
+  try {
+    db.setScheduleShiftRange(employee.id, from, to, shift);
   } catch (err) {
     return res.status(400).json({ error: err.message || 'Не удалось применить период' });
   }
@@ -789,6 +886,18 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
       manualCodesMap.get(rec.employee_id).set(rec.date, rec.code);
     }
 
+    // Плановый график (страница «Графики»: Д/Н/В или свои обозначения) —
+    // используется как источник кода на те дни, где нет ни ручной отметки
+    // табеля, ни фактической отработки по сканам. Так плановые выходные (В)
+    // и другие пометки графика сразу видны в табеле и обновляются вместе с
+    // графиком; как только по сотруднику появляется реальный приход/уход —
+    // код 'Я' по факту всё равно имеет приоритет над плановым.
+    const scheduleCodesMap = new Map(); // employee_id -> Map(dateKey -> shift)
+    for (const rec of db.listScheduleForMonth(year, month1)) {
+      if (!scheduleCodesMap.has(rec.employee_id)) scheduleCodesMap.set(rec.employee_id, new Map());
+      scheduleCodesMap.get(rec.employee_id).set(rec.date, rec.shift);
+    }
+
     const sheetName = `${RU_MONTHS[month0]} ${String(year).slice(2)}`;
     const sheet = workbook.addWorksheet(sheetName.slice(0, 31));
 
@@ -933,12 +1042,16 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
         let absenceDays = 0;
         const reasonCounts = new Map(); // code -> кол-во дней (для колонок "по причинам")
         const empManualCodes = manualCodesMap.get(emp.id);
+        const empScheduleCodes = scheduleCodesMap.get(emp.id);
 
         for (let day = 1; day <= numDays; day++) {
           const dateObj = new Date(Date.UTC(year, month0, day));
           const isWeekend = dateObj.getUTCDay() === 0 || dateObj.getUTCDay() === 6;
           const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
           const manualCode = empManualCodes ? empManualCodes.get(dateKey) : null;
+          // Только для основной должности — учитываем свою ставку/позицию не
+          // по каждой отдельно (совпадает с логикой авто-выходного ниже).
+          const scheduleCode = posIdx === 0 && empScheduleCodes ? (empScheduleCodes.get(dateKey) || null) : null;
           const dayAlloc = allocByDay.get(day);
           const hours = dayAlloc ? dayAlloc.alloc[posIdx] : undefined;
 
@@ -958,6 +1071,22 @@ app.get('/api/export.xlsx', requireAuth('admin'), async (req, res) => {
             monthDaysWorked++;
             monthHours += hours;
             if (nightDates && nightDates.has(dateKey)) monthNight += hours;
+          } else if (scheduleCode === 'В') {
+            // Плановый выходной по графику — как ручной 'В', но проставлен
+            // заранее и меняется сам, если график поменяют.
+            dayCode[day] = 'В';
+            weekendDays++;
+          } else if (scheduleCode === 'Д' || scheduleCode === 'Н') {
+            // Плановая смена по графику, по которой ещё нет фактической
+            // отметки прихода/ухода — показываем как ожидаемую, в итоги не
+            // считаем (это не факт явки, а план).
+            dayCode[day] = scheduleCode;
+          } else if (scheduleCode) {
+            // Своё обозначение из графика (не Д/Н/В) — считаем так же, как
+            // ручной код табеля с причиной неявки.
+            dayCode[day] = scheduleCode;
+            absenceDays++;
+            reasonCounts.set(scheduleCode, (reasonCounts.get(scheduleCode) || 0) + 1);
           } else if (isWeekend && posIdx === 0) {
             dayCode[day] = 'В';
             weekendDays++;

@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Графики — учёт времени</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0c0f16" />
+<link rel="icon" href="/icons/icon-192.png" type="image/png" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Учёт времени" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/css/theme.css" />
+<style>
+  body { margin: 0; padding: 0 0 60px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; max-width: 68ch; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab {
+    padding: 9px 16px; border-radius: 10px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; font-size: 13.5px; font-family: inherit;
+  }
+  .tab.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px;
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+  }
+  .toolbar label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .toolbar input[type="month"] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 10px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  }
+  .pen-group { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+  .pen-hint { font-size: 12px; color: var(--muted); max-width: 30ch; }
+  .code-palette { display: flex; gap: 6px; flex-wrap: wrap; }
+  .code-palette button {
+    padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent;
+    color: var(--text); font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .code-palette button:hover { border-color: var(--accent); }
+  .code-palette button.selected { border-color: var(--accent); background: rgba(91,140,255,0.12); font-weight: 600; }
+  .code-palette button.clear { color: #ff5470; }
+  .custom-code-form { display: flex; gap: 6px; align-items: center; }
+  .custom-code-form input {
+    width: 70px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 8px; font-size: 13px; font-family: inherit; text-transform: uppercase;
+  }
+  .custom-code-form button {
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent;
+    color: var(--text); font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+  table.sched { border-collapse: collapse; width: 100%; min-width: 720px; }
+  table.sched th, table.sched td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
+  table.sched th:last-child, table.sched td:last-child { border-right: none; }
+  table.sched thead th {
+    position: sticky; top: 0; background: var(--panel); color: var(--muted);
+    font-size: 11px; font-weight: 600; padding: 6px 3px; text-align: center; min-width: 30px;
+  }
+  table.sched thead th.name-col, table.sched td.name-col {
+    position: sticky; left: 0; background: var(--panel); text-align: left; padding: 8px 12px;
+    min-width: 170px; z-index: 1; font-size: 13px;
+  }
+  table.sched thead th.weekend, table.sched td.weekend { background: rgba(255,255,255,0.03); }
+  table.sched tbody td { text-align: center; padding: 0; font-size: 12.5px; }
+  table.sched tbody tr:last-child td { border-bottom: none; }
+  .cell-btn {
+    width: 100%; height: 34px; border: none; background: transparent; color: var(--text);
+    cursor: pointer; font-family: inherit; font-size: 12.5px; font-weight: 600;
+  }
+  .cell-btn:hover { background: rgba(91,140,255,0.10); }
+  .cell-btn.shift-Д { color: #34c77b; }
+  .cell-btn.shift-Н { color: #5b8cff; }
+  .cell-btn.shift-В { color: var(--muted); }
+  .empty-msg { color: var(--muted); padding: 30px 14px; text-align: center; }
+
+  .range-row {
+    display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+    border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-top: 16px;
+  }
+  .range-row > div { display: flex; flex-direction: column; }
+  .range-row label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .range-row select, .range-row input {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 7px 9px; font-size: 13px; font-family: inherit; color-scheme: dark;
+  }
+  .range-row button {
+    padding: 8px 16px; border-radius: 8px; border: none; background: var(--accent);
+    color: var(--accent-ink); font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .range-msg { font-size: 13px; margin-top: 8px; min-height: 16px; }
+  .range-msg.error { color: #ff5470; }
+  .range-msg.ok { color: #34c77b; }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <a class="brand" href="/index.html">
+    <img class="mark" src="/icons/icon-192.png" alt="" />
+    <div><div class="name">Учёт времени</div><div class="who">админ-панель</div></div>
+  </a>
+  <nav class="app-nav">
+    <a href="/admin.html">👤 Сотрудники</a>
+    <a href="/schedule.html" class="current">📅 Графики</a>
+    <a href="/timesheet.html">🗓 Табель-коды</a>
+    <a href="/logs.html">📋 Журнал</a>
+    <a href="/export.html">📊 Экспорт</a>
+    <button class="logout-btn" onclick="logout()">Выйти</button>
+  </nav>
+</header>
+<div class="wrap">
+  <h1>Графики работы</h1>
+  <div class="sub">
+    Плановый график смен на месяц — отдельно для сотрудников, охранников и аутсорса
+    (категория определяется по основной должности человека). Выберите смену слева,
+    затем кликайте по дням в таблице, чтобы её проставить.
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="toolbar">
+    <div>
+      <label>Месяц</label>
+      <input type="month" id="schedMonth" onchange="loadSchedule()" />
+    </div>
+    <div class="pen-group">
+      <div>
+        <label>Смена для проставления (кликните, затем — по дням в таблице)</label>
+        <div class="code-palette" id="codePalette"></div>
+      </div>
+      <div class="custom-code-form">
+        <input type="text" id="customCode" maxlength="4" placeholder="Своя" />
+        <button onclick="useCustomCode()">Использовать</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-scroll">
+    <table class="sched" id="schedTable"></table>
+  </div>
+
+  <div class="range-row">
+    <div>
+      <label>Человек</label>
+      <select id="rangeEmployee"></select>
+    </div>
+    <div>
+      <label>Период с</label>
+      <input type="date" id="rangeFrom" />
+    </div>
+    <div>
+      <label>по</label>
+      <input type="date" id="rangeTo" />
+    </div>
+    <div>
+      <label>Смена</label>
+      <select id="rangeShift"></select>
+    </div>
+    <button onclick="applyRangeShift()">Проставить на период</button>
+  </div>
+  <div class="range-msg" id="rangeMsg"></div>
+</div>
+
+<script>
+const CATEGORIES = [
+  { key: 'staff', label: 'Сотрудники' },
+  { key: 'guard', label: 'Охранники' },
+  { key: 'outsource', label: 'Аутсорс' },
+];
+const WEEKDAY_LETTERS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+let currentCategory = 'staff';
+let shiftCodes = [];
+let selectedPen = 'Д'; // текущая выбранная для проставления смена
+let scheduleEmployees = [];
+let scheduleShifts = new Map(); // "employeeId:date" -> shift
+
+async function checkAuth() {
+  const resp = await fetch('/api/auth/me');
+  if (!resp.ok) { location.href = '/login.html'; return false; }
+  const user = await resp.json();
+  if (user.role !== 'admin') { location.href = '/login.html'; return false; }
+  return true;
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  location.href = '/login.html';
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function renderTabs() {
+  const tabs = document.getElementById('tabs');
+  tabs.innerHTML = CATEGORIES.map(c =>
+    `<button class="tab ${c.key === currentCategory ? 'active' : ''}" onclick="switchCategory('${c.key}')">${escapeHtml(c.label)}</button>`
+  ).join('');
+}
+
+function switchCategory(key) {
+  currentCategory = key;
+  renderTabs();
+  loadSchedule();
+}
+
+async function ensureShiftCodes() {
+  if (shiftCodes.length) return;
+  const resp = await fetch('/api/schedule-codes');
+  shiftCodes = resp.ok ? await resp.json() : [];
+}
+
+function renderCodePalette() {
+  const palette = document.getElementById('codePalette');
+  palette.innerHTML = shiftCodes.map(c =>
+    `<button title="${escapeHtml(c.label)}" class="${c.code === selectedPen ? 'selected' : ''}" onclick="selectPen('${c.code}')">${escapeHtml(c.code)}</button>`
+  ).join('') + `<button class="clear ${selectedPen === '' ? 'selected' : ''}" onclick="selectPen('')">✕ Очистить</button>`;
+
+  const rangeSelect = document.getElementById('rangeShift');
+  rangeSelect.innerHTML = shiftCodes
+    .map(c => `<option value="${c.code}">${escapeHtml(c.code)} — ${escapeHtml(c.label)}</option>`).join('');
+}
+
+function selectPen(code) {
+  selectedPen = code;
+  renderCodePalette();
+}
+
+function useCustomCode() {
+  const input = document.getElementById('customCode');
+  const code = input.value.trim().toUpperCase();
+  if (!code) return;
+  if (!shiftCodes.some(c => c.code === code)) {
+    shiftCodes.push({ code, label: 'Своё обозначение' });
+  }
+  selectPen(code);
+  input.value = '';
+}
+
+function daysInMonth(year, month1) {
+  return new Date(year, month1, 0).getDate();
+}
+
+async function loadSchedule() {
+  const month = document.getElementById('schedMonth').value;
+  if (!month) return;
+  const resp = await fetch(`/api/schedule?month=${month}&category=${currentCategory}`);
+  if (resp.status === 401 || resp.status === 403) { location.href = '/login.html'; return; }
+  if (!resp.ok) return;
+  const data = await resp.json();
+  scheduleEmployees = data.employees || [];
+  scheduleShifts = new Map((data.shifts || []).map(s => [`${s.employee_id}:${s.date}`, s.shift]));
+  renderTable();
+  renderRangeEmployeeSelect();
+}
+
+function renderRangeEmployeeSelect() {
+  const select = document.getElementById('rangeEmployee');
+  select.innerHTML = scheduleEmployees.map(e => `<option value="${e.id}">${escapeHtml(e.full_name)}</option>`).join('') ||
+    '<option value="">— нет людей в этой категории —</option>';
+}
+
+function renderTable() {
+  const table = document.getElementById('schedTable');
+  const [year, month1] = document.getElementById('schedMonth').value.split('-').map(Number);
+  const total = daysInMonth(year, month1);
+
+  if (!scheduleEmployees.length) {
+    table.innerHTML = `<tr><td class="empty-msg">В категории «${escapeHtml(CATEGORIES.find(c => c.key === currentCategory).label)}» пока нет людей.
+      Должность назначается на странице «Сотрудники» — впишите в название должности
+      «охранник» или «аутсорс», чтобы человек попал в соответствующий график;
+      остальные попадают в «Сотрудники».</td></tr>`;
+    return;
+  }
+
+  let head = '<thead><tr><th class="name-col">ФИО</th>';
+  for (let d = 1; d <= total; d++) {
+    const dow = new Date(year, month1 - 1, d).getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    head += `<th class="${isWeekend ? 'weekend' : ''}">${d}<br>${WEEKDAY_LETTERS[dow]}</th>`;
+  }
+  head += '</tr></thead>';
+
+  let body = '<tbody>';
+  for (const emp of scheduleEmployees) {
+    body += `<tr><td class="name-col">${escapeHtml(emp.full_name)}</td>`;
+    for (let d = 1; d <= total; d++) {
+      const dateKey = `${year}-${String(month1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dow = new Date(year, month1 - 1, d).getDay();
+      const isWeekend = dow === 0 || dow === 6;
+      const shift = scheduleShifts.get(`${emp.id}:${dateKey}`) || '';
+      body += `<td class="${isWeekend ? 'weekend' : ''}"><button class="cell-btn shift-${escapeHtml(shift)}" onclick="paintCell(${emp.id}, '${dateKey}')">${escapeHtml(shift)}</button></td>`;
+    }
+    body += '</tr>';
+  }
+  body += '</tbody>';
+
+  table.innerHTML = head + body;
+}
+
+async function paintCell(employeeId, dateKey) {
+  const resp = await fetch('/api/schedule', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id: employeeId, date: dateKey, shift: selectedPen }),
+  });
+  if (!resp.ok) return;
+  if (selectedPen) {
+    scheduleShifts.set(`${employeeId}:${dateKey}`, selectedPen);
+  } else {
+    scheduleShifts.delete(`${employeeId}:${dateKey}`);
+  }
+  renderTable();
+}
+
+async function applyRangeShift() {
+  const employee_id = document.getElementById('rangeEmployee').value;
+  const from = document.getElementById('rangeFrom').value;
+  const to = document.getElementById('rangeTo').value;
+  const shift = document.getElementById('rangeShift').value;
+  const msg = document.getElementById('rangeMsg');
+  if (!employee_id || !from || !to || !shift) {
+    msg.textContent = 'Укажите человека, период и смену';
+    msg.className = 'range-msg error';
+    return;
+  }
+  const resp = await fetch('/api/schedule/range', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employee_id, from, to, shift }),
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    msg.textContent = data.error || 'Не удалось применить период';
+    msg.className = 'range-msg error';
+    return;
+  }
+  msg.textContent = `Смена ${shift} проставлена на весь период`;
+  msg.className = 'range-msg ok';
+  await loadSchedule();
+}
+
+(async () => {
+  if (!(await checkAuth())) return;
+  renderTabs();
+  document.getElementById('schedMonth').value = currentMonthValue();
+  await ensureShiftCodes();
+  renderCodePalette();
+  await loadSchedule();
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

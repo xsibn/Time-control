@@ -5,46 +5,36 @@
       "role": "guard",
       "full_name": "Охрана",
       "login": "guard",
-      "password_hash": "e6c51acb322e5fafd2a546eb1205fa17b0c5eaf6ef5d40599fe96c64e3b4fc08c23cd7dd52ca31981054ae8dc94ad837e59f2c43d9002f25420ea54ea566d063",
-      "password_salt": "96a171a9b7a39d4884b676e6f0a027dd",
-      "work_start": null,
-      "work_end": null,
+      "password_hash": "2506c9f84d8a200daf8bd75f1f56c9f1342a73dc5904bae47cbdcbdec6268f3fb75d21afa2405484262a1e491dc0c6be5fca5adfbf267a325d1289568c2cf362",
+      "password_salt": "8f333953710086599466d6a60140292c",
+      "positions": [],
       "active": 1,
       "last_window": 0,
-      "created_at": "2026-07-27 19:28:09"
+      "created_at": "2026-08-04 12:35:46"
     },
     {
       "id": 2,
-      "role": "employee",
-      "full_name": "АХМЕРОВ БУЛАТ ШАМИЛЕВИЧ",
-      "login": "xsibn",
-      "password_hash": "d2836a85ca89ae3d9261cf9d5f4c3aa9e9266664c291e4a23deb3a3d7348e6518b228d2110359f7a0200681adc5883a118a895095a6be98d77c5ff6375ecfbaf",
-      "password_salt": "0e4f306a25802ec77c3de4bd833e0e2f",
-      "work_start": "09:00",
-      "work_end": "21:00",
-      "active": 1,
-      "last_window": 0,
-      "created_at": "2026-07-27 19:30:57"
-    },
-    {
-      "id": 3,
       "role": "admin",
       "full_name": "Администратор",
       "login": "admin",
-      "password_hash": "b37491d5329f83734da9884de3bc0ab836f8d3807c6456166f77af387860699a02607336907b91f975e4bd37932721ed0fce224cae26e6c9ff455a0b4d3ca1bc",
-      "password_salt": "c04ea9ae7c7b246b791b35d14ee3312f",
-      "work_start": null,
-      "work_end": null,
+      "password_hash": "8baf0d5da20682216a732fb0a479a6c5d4c31ea53bd3f981eaeecef6e1c4085fd688f9290661e73a8567e186377cb05309ab5ba886b6f6bb1c61bf4df8dc0bc9",
+      "password_salt": "70964040ad408bf65d9ef106d859f8fd",
+      "positions": [],
       "active": 1,
       "last_window": 0,
-      "created_at": "2026-07-27 19:35:54"
+      "created_at": "2026-08-04 12:35:46"
     }
   ],
   "time_logs": [],
+  "day_codes": [],
+  "schedule_shifts": [],
   "settings": {
-    "guard_secret": "a0b2508e115ed8e32ce807ced5ad16034155971b1690814eab10be29ff36018d",
-    "session_secret": "447acdc6d76798f828b4c6585fc45488fe8dfcb74caed6438006fd296992329e"
+    "guard_secret": "f2de5e247d69e979fc087d1dbc270e2803260c02d4bd92ed2d07029f90eadccd",
+    "session_secret": "16ec5e4a96aa3d95f05ae4131b30be12464d27303f69a3dea45562c9f64a9525",
+    "last_log_cleanup": "2026-08-04T12:35:46.873Z"
   },
-  "next_user_id": 4,
-  "next_log_id": 1
+  "next_user_id": 3,
+  "next_log_id": 1,
+  "next_daycode_id": 1,
+  "next_shift_id": 1
 }

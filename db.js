@@ -15,7 +15,7 @@ function nowIso() {
 
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) {
-    return { users: [], time_logs: [], day_codes: [], settings: {}, next_user_id: 1, next_log_id: 1, next_daycode_id: 1 };
+    return { users: [], time_logs: [], day_codes: [], schedule_shifts: [], settings: {}, next_user_id: 1, next_log_id: 1, next_daycode_id: 1, next_shift_id: 1 };
   }
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
@@ -23,6 +23,9 @@ function loadData() {
     // Совместимость со старыми файлами данных, созданными до появления кодов табеля.
     if (!Array.isArray(data.day_codes)) data.day_codes = [];
     if (!data.next_daycode_id) data.next_daycode_id = 1;
+    // Совместимость со старыми файлами данных, созданными до появления графиков работы.
+    if (!Array.isArray(data.schedule_shifts)) data.schedule_shifts = [];
+    if (!data.next_shift_id) data.next_shift_id = 1;
     return data;
   } catch (err) {
     throw new Error(`Не удалось прочитать data.json: ${err.message}`);
@@ -165,6 +168,17 @@ function updateEmployeePositions(id, positions) {
 // реально отработанное время в табеле.
 function primaryPosition(user) {
   return user && Array.isArray(user.positions) && user.positions[0] ? user.positions[0] : null;
+}
+
+// Категория сотрудника для меню «Графики» — определяется по названию
+// основной должности. Ключевые слова захватывают типовые варианты
+// написания («охрана», «охранник», «аутсорсинг» и т.п.).
+function employeeCategory(user) {
+  const pos = primaryPosition(user);
+  const name = (pos && pos.name ? pos.name : '').toLowerCase();
+  if (name.includes('охран')) return 'guard';
+  if (name.includes('аутсорс') || name.includes('outsource')) return 'outsource';
+  return 'staff';
 }
 
 function setEmployeeActive(id, active) {
@@ -381,6 +395,73 @@ function listDayCodesForEmployee(employeeId, year, month1) {
   return state.day_codes.filter(d => d.employee_id === Number(employeeId) && d.date.startsWith(prefix));
 }
 
+// --- Графики работы (плановые смены: Д/Н/В и т.п., составляет админ) ---
+// Отдельно от day_codes: коды табеля фиксируют, что фактически произошло
+// (отпуск, больничный...), а график — это план на будущее по сотрудникам,
+// охранникам и аутсорсу, который админ составляет заранее по категориям.
+// Одна запись на пару (сотрудник, дата). shift='' или null — снимает смену.
+
+function findScheduleShift(employeeId, date) {
+  return state.schedule_shifts.find(s => s.employee_id === Number(employeeId) && s.date === date) || null;
+}
+
+function setScheduleShift(employeeId, date, shift) {
+  const existing = findScheduleShift(employeeId, date);
+  const clean = shift ? String(shift).trim().toUpperCase().slice(0, 4) : '';
+  if (!clean) {
+    if (existing) {
+      state.schedule_shifts = state.schedule_shifts.filter(s => s !== existing);
+      persist();
+    }
+    return null;
+  }
+  if (existing) {
+    existing.shift = clean;
+    persist();
+    return existing;
+  }
+  const rec = { id: state.next_shift_id++, employee_id: Number(employeeId), date, shift: clean };
+  state.schedule_shifts.push(rec);
+  persist();
+  return rec;
+}
+
+// Проставляет одну смену на весь диапазон дат [from, to] включительно —
+// удобно для типовых графиков (например, «через два на два»/сплошные будни).
+function setScheduleShiftRange(employeeId, from, to, shift) {
+  const start = new Date(from + 'T00:00:00Z');
+  const end = new Date(to + 'T00:00:00Z');
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    const err = new Error('Некорректный период дат');
+    err.code = 'INVALID_RANGE';
+    throw err;
+  }
+  const results = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const dateKey = cursor.toISOString().slice(0, 10);
+    results.push(setScheduleShift(employeeId, dateKey, shift));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return results;
+}
+
+function listScheduleForMonth(year, month1) {
+  const prefix = `${year}-${String(month1).padStart(2, '0')}`;
+  return state.schedule_shifts.filter(s => s.date.startsWith(prefix));
+}
+
+function listScheduleForEmployee(employeeId, year, month1) {
+  const prefix = `${year}-${String(month1).padStart(2, '0')}`;
+  return state.schedule_shifts.filter(s => s.employee_id === Number(employeeId) && s.date.startsWith(prefix));
+}
+
+// Сотрудники одной категории (staff/guard/outsource) — используется
+// страницей «Графики», где график составляется отдельно по каждой категории.
+function listEmployeesByCategory(category) {
+  return listEmployees().filter(u => employeeCategory(u) === category);
+}
+
 module.exports = {
   getSetting,
   setSetting,
@@ -395,6 +476,12 @@ module.exports = {
   deleteEmployee,
   updateEmployeePositions,
   primaryPosition,
+  employeeCategory,
+  listEmployeesByCategory,
+  setScheduleShift,
+  setScheduleShiftRange,
+  listScheduleForMonth,
+  listScheduleForEmployee,
   tryConsumeWindow,
   getLastLogForEmployee,
   addLog,
